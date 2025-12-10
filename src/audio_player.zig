@@ -3,6 +3,44 @@ const c = @cImport({
     @cInclude("portaudio.h");
 });
 
+const PlaybackContext = struct {
+    buffer: [*]const f32,
+    sample_count: usize,
+    channel_count: u32,
+    current_position: usize = 0,
+};
+
+fn audioCallback(
+    input: ?*const anyopaque,
+    output: ?*anyopaque,
+    frameCount: c_ulong,
+    timeInfo: ?*const c.PaStreamCallbackTimeInfo,
+    statusFlags: c.PaStreamCallbackFlags,
+    userData: ?*anyopaque,
+) callconv(.c) c_int {
+    _ = input;
+    _ = timeInfo;
+    _ = statusFlags;
+
+    const context = @as(*PlaybackContext, @ptrCast(@alignCast(userData)));
+    const out = @as([*]f32, @ptrCast(@alignCast(output)));
+
+    var i: usize = 0;
+    while (i < frameCount) : (i += 1) {
+        if (context.current_position < context.sample_count * context.channel_count) {
+            out[i] = context.buffer[context.current_position];
+            context.current_position += 1;
+        } else {
+            out[i] = 0.0;
+        }
+    }
+
+    if (context.current_position >= context.sample_count * context.channel_count) {
+        return c.paComplete;
+    }
+    return c.paContinue;
+}
+
 pub const AudioPlayer = struct {
     allocator: std.mem.Allocator,
     stream: ?*c.PaStream = null,
@@ -26,14 +64,18 @@ pub const AudioPlayer = struct {
         _ = c.Pa_Terminate();
     }
 
-    pub fn playBuffer(self: *AudioPlayer, buffer: *const anyopaque, sample_count: usize, sample_rate: u32, channel_count: u32) !void {
-        const sample_format = c.paFloat32;
+    pub fn playBuffer(self: *AudioPlayer, buffer: [*]const f32, sample_count: usize, sample_rate: u32, channel_count: u32) !void {
+        var context = PlaybackContext{
+            .buffer = buffer,
+            .sample_count = sample_count,
+            .channel_count = channel_count,
+        };
 
         var stream: ?*c.PaStream = null;
         var output_params: c.PaStreamParameters = undefined;
         output_params.device = c.Pa_GetDefaultOutputDevice();
         output_params.channelCount = @as(c_int, @intCast(channel_count));
-        output_params.sampleFormat = sample_format;
+        output_params.sampleFormat = c.paFloat32;
         output_params.suggestedLatency = 0.1;
         output_params.hostApiSpecificStreamInfo = null;
 
@@ -42,10 +84,10 @@ pub const AudioPlayer = struct {
             null,
             &output_params,
             @as(f64, @floatFromInt(sample_rate)),
-            @as(c_ulong, @intCast(sample_count)),
+            256,
             c.paClipOff,
-            null,
-            null,
+            audioCallback,
+            &context,
         );
 
         if (err != c.paNoError) {
@@ -55,15 +97,9 @@ pub const AudioPlayer = struct {
 
         self.stream = stream;
 
-        const err2 = c.Pa_WriteStream(stream, buffer, @as(c_ulong, @intCast(sample_count)));
+        const err2 = c.Pa_StartStream(stream);
         if (err2 != c.paNoError) {
-            std.debug.print("PortAudio write stream error: {}\n", .{err2});
-            return error.PortAudioWriteStreamFailed;
-        }
-
-        const err3 = c.Pa_StartStream(stream);
-        if (err3 != c.paNoError) {
-            std.debug.print("PortAudio start stream error: {}\n", .{err3});
+            std.debug.print("PortAudio start stream error: {}\n", .{err2});
             return error.PortAudioStartStreamFailed;
         }
 
@@ -77,3 +113,4 @@ pub const AudioPlayer = struct {
         self.is_playing = false;
     }
 };
+
