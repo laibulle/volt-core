@@ -102,24 +102,26 @@ pub const AudioQueueInput = struct {
         // Query device configuration
         const device_buffer_size = getDeviceBufferSize(device_id);
         const device_sample_rate = getDeviceSampleRate(device_id);
-        
-        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, sample rate={d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, device_id });
+
+        // Force 44.1kHz for now (Scarlett actual sample rate)
+        const use_sample_rate: f64 = 44100.0;
+
+        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, device reports {d:.0} Hz, using {d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, use_sample_rate, device_id });
 
         // Allocate ring buffer dynamically
         const ring_buffer_size = device_buffer_size * BUFFER_COUNT;
         const input_buffer = try allocator.alloc(f32, ring_buffer_size);
         @memset(input_buffer, 0.0);
-        
+
         var self = Self{
             .allocator = allocator,
             .buffer_size = device_buffer_size,
             .input_buffer = input_buffer,
         };
-        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, sample rate={d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, device_id });
 
-        // Create audio format for input (mono, device sample rate, float32)
+        // Create audio format for input (mono, 44.1kHz, float32)
         var format: c.AudioStreamBasicDescription = undefined;
-        format.mSampleRate = device_sample_rate;
+        format.mSampleRate = use_sample_rate;
         format.mFormatID = c.kAudioFormatLinearPCM;
         format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked;
         format.mBytesPerPacket = 4; // 32-bit float
@@ -161,8 +163,8 @@ pub const AudioQueueInput = struct {
         );
         if (err == 0) {
             std.debug.print("🔍 Audio Queue ACTUAL sample rate: {d} Hz (after creation)\n", .{actual_format.mSampleRate});
-            if (actual_format.mSampleRate != device_sample_rate) {
-                std.debug.print("⚠️  WARNING: Sample rate mismatch! Requested {d}, got {d}\n", .{ device_sample_rate, actual_format.mSampleRate });
+            if (actual_format.mSampleRate != use_sample_rate) {
+                std.debug.print("⚠️  WARNING: Sample rate mismatch! Requested {d}, got {d}\n", .{ use_sample_rate, actual_format.mSampleRate });
             }
         }
 
