@@ -1,5 +1,32 @@
 const std = @import("std");
 
+/// Parameter type definitions
+pub const ParameterType = enum {
+    float,
+    integer,
+    boolean,
+    enum_type,
+};
+
+/// Available parameter descriptor
+pub const ParameterDescriptor = struct {
+    name: []const u8,
+    param_type: ParameterType,
+    default_value: f32,
+    min_value: f32 = 0.0,
+    max_value: f32 = 1.0,
+    description: []const u8 = "",
+};
+
+/// Effect metadata descriptor
+pub const EffectDescriptor = struct {
+    id: []const u8,
+    name: []const u8,
+    description: []const u8 = "",
+    version: []const u8 = "1.0.0",
+    available_parameters: []const ParameterDescriptor,
+};
+
 /// Port: Effect Processor Interface
 /// This defines the contract for audio effect processors.
 /// Effect implementations should be placed in src/effects/ folder.
@@ -12,6 +39,12 @@ pub const EffectProcessor = struct {
 
     /// Effect instance data
     instance: *anyopaque,
+
+    /// Effect descriptor (metadata)
+    descriptor: *const EffectDescriptor,
+
+    /// Current parameter values
+    parameter_values: std.StringHashMap(f32),
 
     /// Process a single sample through this effect
     pub fn process(self: *const EffectProcessor, input: f32) f32 {

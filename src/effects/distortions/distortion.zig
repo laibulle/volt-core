@@ -1,5 +1,32 @@
 const std = @import("std");
 const audio = @import("../../audio.zig");
+const ports = @import("../../ports/effects.zig");
+
+/// Distortion effect metadata
+pub const distortion_descriptor: ports.EffectDescriptor = .{
+    .id = "distortion",
+    .name = "Distortion",
+    .description = "Soft-clipping distortion with tone shaping",
+    .version = "1.0.0",
+    .available_parameters = &.{
+        .{
+            .name = "drive",
+            .param_type = ports.ParameterType.float,
+            .default_value = 1.0,
+            .min_value = 0.1,
+            .max_value = 10.0,
+            .description = "Distortion amount (gain boost)",
+        },
+        .{
+            .name = "tone",
+            .param_type = ports.ParameterType.float,
+            .default_value = 0.5,
+            .min_value = 0.0,
+            .max_value = 1.0,
+            .description = "Tone shaping (0=more bass, 1=more treble)",
+        },
+    },
+};
 
 /// Distortion effect processor
 /// Applies soft-clipping distortion with tone shaping
