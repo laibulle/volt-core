@@ -17,6 +17,7 @@ pub fn main() !void {
     var input_device: i32 = -1; // -1 means use default
     var output_device: i32 = -1; // -1 means use default
     var buffer_size: u32 = 128; // Default 128 frames
+    var sample_rate: u32 = 44100; // Default 44.1kHz
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -44,6 +45,11 @@ pub fn main() !void {
                 buffer_size = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
                 i += 1;
             }
+        } else if (std.mem.eql(u8, args[i], "--sample-rate") or std.mem.eql(u8, args[i], "-sr")) {
+            if (i + 1 < args.len) {
+                sample_rate = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
+                i += 1;
+            }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
             std.debug.print("Usage: volt_core [options]\n", .{});
@@ -53,6 +59,7 @@ pub fn main() !void {
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
             std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
+            std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
             std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
             std.debug.print("  --help, -h                        Show this help message\n", .{});
             return;
@@ -98,9 +105,10 @@ pub fn main() !void {
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
         std.debug.print("(Cabinet: Celestion Vintage 30)\n", .{});
-        std.debug.print("(Buffer size: {d} frames)\n\n", .{buffer_size});
+        std.debug.print("(Buffer size: {d} frames)\n", .{buffer_size});
+        std.debug.print("(Sample rate: {d} Hz)\n\n", .{sample_rate});
 
-        try driver.startProcessing(input_device, output_device, buffer_size, duration, &distortion, &convolver);
+        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &distortion, &convolver);
         driver.deinit(); // Clean up audio resources
     } else {
         // Load guitar sample (existing behavior)
@@ -161,22 +169,4 @@ pub fn main() !void {
 
         std.debug.print("✓ Playback complete!\n", .{});
     }
-}
-
-test "simple test" {
-    const gpa = std.testing.allocator;
-    var list: std.ArrayList(i32) = .empty;
-    defer list.deinit(gpa);
-    try list.append(gpa, 42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

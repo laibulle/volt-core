@@ -238,6 +238,7 @@ pub const CoreAudioGraphDriver = struct {
         input_device: i32,
         output_device: i32,
         buffer_size: usize,
+        sample_rate: u32,
         duration: f64,
         distortion: *anyopaque,
         convolver: *anyopaque,
@@ -337,8 +338,8 @@ pub const CoreAudioGraphDriver = struct {
 
         std.debug.print("🎵 Output device sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
 
-        // Force output device to 44.1kHz to match Audio Queue
-        const target_sample_rate: f64 = 44100.0;
+        // Use the requested sample rate from CLI
+        const target_sample_rate: f64 = @floatFromInt(sample_rate);
         if (driver.output_device_id != 0 and device_sample_rate != target_sample_rate) {
             prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
             err = c.AudioObjectSetPropertyData(
@@ -742,8 +743,8 @@ fn initVTable(allocator: std.mem.Allocator) !*AudioDriver {
     return driver_on_heap;
 }
 
-fn startProcessingVTable(self: *AudioDriver, input_device: i32, output_device: i32, buffer_size: usize, duration: f64, distortion: *anyopaque, convolver: *anyopaque) !void {
-    try CoreAudioGraphDriver.startProcessing(self, input_device, output_device, buffer_size, duration, distortion, convolver);
+fn startProcessingVTable(self: *AudioDriver, input_device: i32, output_device: i32, buffer_size: usize, sample_rate: u32, duration: f64, distortion: *anyopaque, convolver: *anyopaque) !void {
+    try CoreAudioGraphDriver.startProcessing(self, input_device, output_device, buffer_size, sample_rate, duration, distortion, convolver);
 }
 
 const vtable = listDevicesVTable;

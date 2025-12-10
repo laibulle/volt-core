@@ -18,6 +18,7 @@ pub const AudioDriver = struct {
             input_device: i32,
             output_device: i32,
             buffer_size: usize,
+            sample_rate: u32,
             duration: f64,
             distortion: *anyopaque,
             convolver: *anyopaque,
@@ -43,11 +44,12 @@ pub const AudioDriver = struct {
         input_device: i32,
         output_device: i32,
         buffer_size: usize,
+        sample_rate: u32,
         duration: f64,
         distortion: *anyopaque,
         convolver: *anyopaque,
     ) !void {
-        try self.vtable.start_processing(self, input_device, output_device, buffer_size, duration, distortion, convolver);
+        try self.vtable.start_processing(self, input_device, output_device, buffer_size, sample_rate, duration, distortion, convolver);
     }
 
     pub fn stopProcessing(self: *AudioDriver) void {

@@ -106,10 +106,10 @@ pub const AudioQueueInput = struct {
         const device_buffer_size = getDeviceBufferSize(device_id);
         const device_sample_rate = getDeviceSampleRate(device_id);
 
-        // Force 44.1kHz for now (Scarlett actual sample rate)
-        const use_sample_rate: f64 = 44100.0;
+        // Use device's actual sample rate (already set by driver)
+        const use_sample_rate: f64 = device_sample_rate;
 
-        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, device reports {d:.0} Hz, using {d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, use_sample_rate, device_id });
+        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, using {d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, use_sample_rate, device_id });
 
         // Calculate ring buffer size based on desired latency in milliseconds
         const samples_per_ms = @as(u32, @intFromFloat(use_sample_rate / 1000.0));
