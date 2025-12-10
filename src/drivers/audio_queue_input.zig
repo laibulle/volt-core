@@ -269,7 +269,7 @@ fn audioQueueInputCallback(
     _: ?*anyopaque,
     _: c.AudioQueueRef,
     buffer: c.AudioQueueBufferRef,
-    _: [*c]const c.AudioTimeStamp,
+    timestamp: [*c]const c.AudioTimeStamp,
     inNumberPackets: u32,
     _: [*c]const c.AudioStreamPacketDescription,
 ) callconv(.c) void {
@@ -278,6 +278,12 @@ fn audioQueueInputCallback(
         const current_count = self.samples_captured.load(.monotonic);
         if (current_count == 0) {
             std.debug.print("✓ Audio Queue input callback started (receiving {} packets)\n", .{inNumberPackets});
+            if (timestamp.*.mFlags & (1 << 0) != 0) { // kAudioTimeStampSampleTimeValid
+                std.debug.print("🕐 Audio Queue start timestamp: sample={d}, rate={d}\n", .{
+                    timestamp.*.mSampleTime,
+                    timestamp.*.mRateScalar,
+                });
+            }
         }
 
         // Extract samples from the buffer

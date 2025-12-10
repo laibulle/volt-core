@@ -298,36 +298,7 @@ pub const CoreAudioGraphDriver = struct {
 
         driver.output_unit = driver.input_unit;
 
-        // Disable input scope passthrough (we don't want dry signal)
-        var enable: u32 = 0;
-        err = c.AudioUnitSetProperty(
-            driver.input_unit,
-            c.kAudioOutputUnitProperty_EnableIO,
-            c.kAudioUnitScope_Input,
-            1, // input bus
-            &enable,
-            @sizeOf(u32),
-        );
-        if (err != 0) {
-            std.debug.print("Warning: disabling input IO returned: {d}\n", .{err});
-        }
-
-        // Set input device (not needed since we disabled input passthrough, but kept for reference)
-        // We're using Audio Queue for input capture instead
-        if (false and driver.input_device_id != 0) {
-            _ = c.AudioUnitSetProperty(
-                driver.input_unit,
-                c.kAudioOutputUnitProperty_CurrentDevice,
-                c.kAudioUnitScope_Input,
-                1,
-                &driver.input_device_id,
-                @sizeOf(c.AudioDeviceID),
-            );
-        }
-
-        // Set stream format
-        // Set stream format to match device capabilities
-        // First get the device's native sample rate
+        // STEP 1: Force device sample rate BEFORE Audio Unit sees it
         var device_sample_rate: f64 = 44100.0;
         var prop_address: c.AudioObjectPropertyAddress = undefined;
         prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
@@ -373,6 +344,37 @@ pub const CoreAudioGraphDriver = struct {
             driver.sample_rate = device_sample_rate;
         }
 
+        // STEP 2: Now set Audio Unit's output device (it will query the device and see our rate)
+        if (driver.output_device_id != 0) {
+            err = c.AudioUnitSetProperty(
+                driver.input_unit,
+                c.kAudioOutputUnitProperty_CurrentDevice,
+                c.kAudioUnitScope_Output,
+                0, // output bus
+                &driver.output_device_id,
+                @sizeOf(c.AudioDeviceID),
+            );
+            if (err != 0) {
+                std.debug.print("⚠️  Warning: Could not set Audio Unit output device: error {d}\n", .{err});
+            } else {
+                std.debug.print("✓ Set Audio Unit output device to 0x{x}\n", .{driver.output_device_id});
+            }
+        }
+
+        // Disable input scope passthrough (we don't want dry signal)
+        var enable: u32 = 0;
+        err = c.AudioUnitSetProperty(
+            driver.input_unit,
+            c.kAudioOutputUnitProperty_EnableIO,
+            c.kAudioUnitScope_Input,
+            1, // input bus
+            &enable,
+            @sizeOf(u32),
+        );
+        if (err != 0) {
+            std.debug.print("Warning: disabling input IO returned: {d}\n", .{err});
+        }
+
         // Set device buffer size to 32 frames for low latency
         const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
         var desired_buffer_size: u32 = 32;
@@ -398,6 +400,11 @@ pub const CoreAudioGraphDriver = struct {
 
         // Force input device to match output sample rate
         if (driver.input_device_id != 0) {
+            // Reset prop_address for input scope
+            prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+            prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+            prop_address.mElement = 0;
+
             var input_sample_rate: f64 = 0.0;
             _ = c.AudioObjectGetPropertyData(
                 driver.input_device_id,
@@ -509,9 +516,41 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("🔍 Audio Unit ACTUAL output format: {d:.0} Hz, {d} channels\n", .{ actual_format.mSampleRate, actual_format.mChannelsPerFrame });
             if (actual_format.mSampleRate != driver.sample_rate) {
                 std.debug.print("⚠️  CRITICAL: Sample rate mismatch! Requested {d:.0}, got {d:.0}\n", .{ driver.sample_rate, actual_format.mSampleRate });
-                std.debug.print("⚠️  This WILL cause pitch issues. Audio Unit is forcing device rate.\n", .{});
-                // Update driver to use actual rate
-                driver.sample_rate = actual_format.mSampleRate;
+                std.debug.print("⚠️  Audio Unit rejected our sample rate. Forcing device and retrying...\n", .{});
+
+                // Force device to the rate we want
+                const force_rate: f64 = driver.sample_rate;
+                var force_prop_address: c.AudioObjectPropertyAddress = undefined;
+                force_prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+                force_prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+                force_prop_address.mElement = 0;
+
+                _ = c.AudioObjectSetPropertyData(
+                    driver.output_device_id,
+                    &force_prop_address,
+                    0,
+                    null,
+                    @sizeOf(f64),
+                    @ptrCast(&force_rate),
+                );
+
+                // Try setting Audio Unit format again
+                stream_format.mSampleRate = driver.sample_rate;
+                const retry_err = c.AudioUnitSetProperty(
+                    driver.input_unit,
+                    c.kAudioUnitProperty_StreamFormat,
+                    c.kAudioUnitScope_Output,
+                    0,
+                    &stream_format,
+                    @sizeOf(c.AudioStreamBasicDescription),
+                );
+
+                if (retry_err == 0) {
+                    std.debug.print("✓ Successfully forced Audio Unit to {d:.0} Hz on retry\n", .{driver.sample_rate});
+                } else {
+                    std.debug.print("⚠️  Still failed (error {d}). Device may not support this rate.\n", .{retry_err});
+                    driver.sample_rate = actual_format.mSampleRate;
+                }
             }
         }
 
