@@ -600,7 +600,7 @@ pub const CoreAudioGraphDriver = struct {
             }
 
             // Debug: Show if we're getting real input
-            if ((driver.conv_state_pos / in_number_frames) % 100 == 0) {
+            if ((driver.conv_state_pos / in_number_frames) % 1000 == 0) {
                 if (input_sample_count > 0) {
                     std.debug.print("✓ Callback #{}: {}/{} guitar samples\n", .{ driver.conv_state_pos / in_number_frames, input_sample_count, in_number_frames });
                 } else if (test_tone_count > 0) {
@@ -631,19 +631,6 @@ pub const CoreAudioGraphDriver = struct {
             // Clamp and output
             audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
             max_output = @max(max_output, @abs(audio_out[i]));
-        }
-
-        // Debug audio levels every 100 callbacks
-        if ((driver.conv_state_pos / in_number_frames) % 100 == 0) {
-            std.debug.print("🔊 Input: peak={d:.4}, non-zero={}/{} | Output: peak={d:.4}\n", .{ max_input, non_zero_count, in_number_frames, max_output });
-            // Print first few output samples to verify they're being written
-            if (audio_out.len >= 10) {
-                std.debug.print("   First 10 output samples: ", .{});
-                for (0..10) |idx| {
-                    std.debug.print("{d:.3} ", .{audio_out[idx]});
-                }
-                std.debug.print("\n", .{});
-            }
         }
 
         return 0;

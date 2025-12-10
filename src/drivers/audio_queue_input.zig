@@ -5,7 +5,7 @@ const c = @cImport({
 });
 
 const BUFFER_COUNT = 4;
-const BUFFER_SIZE = 2048; // Samples per buffer - reduced for lower latency
+const BUFFER_SIZE = 512; // Samples per buffer - small for low latency (matching buffer-size 32)
 
 // Helper function to get device sample rate
 fn getDeviceSampleRate(device_id: c.AudioDeviceID) f64 {
@@ -177,16 +177,9 @@ pub const AudioQueueInput = struct {
         return self;
     }
 
-    var debug_get_count: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
-
     pub fn getSample(self: *Self) ?f32 {
         const read_idx = self.read_pos.load(.seq_cst);
         const write_idx = self.write_pos.load(.seq_cst);
-
-        const call_count = debug_get_count.fetchAdd(1, .monotonic);
-        if (call_count % 50000 == 0) {
-            std.debug.print("📖 getSample #{}: read={}, write={}, available={}, self={*}\n", .{ call_count, read_idx, write_idx, if (write_idx > read_idx) write_idx - read_idx else 0, self });
-        }
 
         if (read_idx == write_idx) {
             return null; // No data available
@@ -197,7 +190,6 @@ pub const AudioQueueInput = struct {
         self.read_pos.store(read_idx + 1, .seq_cst);
         return sample;
     }
-
     var debug_write_count: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
 
     pub fn writeSample(self: *Self, sample: f32) void {
