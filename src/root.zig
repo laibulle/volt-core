@@ -6,6 +6,7 @@ pub const effects = @import("effects.zig");
 pub const wav_loader = @import("wav_loader.zig");
 pub const ir_loader = @import("ir_loader.zig");
 pub const audio_player = @import("audio_player.zig");
+pub const realtime_processor = @import("realtime_processor.zig");
 
 pub fn bufferedPrint() !void {
     // Stdout is for the actual output of your application, for example if you
