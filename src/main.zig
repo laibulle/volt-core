@@ -49,7 +49,6 @@ pub fn main() !void {
 
     std.debug.print("✓ Playback complete!\n", .{});
 }
-}
 
 test "simple test" {
     const gpa = std.testing.allocator;

@@ -82,23 +82,13 @@ pub const AudioPlayer = struct {
         self.context = ctx;
 
         // Get device info
-        const device_id = c.Pa_GetDefaultOutputDevice();
-        const device_info = c.Pa_GetDeviceInfo(device_id);
-        std.debug.print("[Debug] Output Device ID: {d}\n", .{device_id});
-        if (device_info != null) {
-            const info = device_info.?;
-            std.debug.print("[Debug] Max Output Channels: {d}\n", .{info[0].maxOutputChannels});
-        }
-
         var stream: ?*c.PaStream = null;
         var output_params: c.PaStreamParameters = undefined;
-        output_params.device = device_id;
+        output_params.device = c.Pa_GetDefaultOutputDevice();
         output_params.channelCount = @as(c_int, @intCast(channel_count));
         output_params.sampleFormat = c.paFloat32;
         output_params.suggestedLatency = 0.1;
         output_params.hostApiSpecificStreamInfo = null;
-
-        std.debug.print("[Debug] Opening stream with {d} channels at {d}Hz, buffer size: {d}\n", .{ channel_count, sample_rate, sample_count });
 
         const err = c.Pa_OpenStream(
             &stream,
@@ -112,11 +102,9 @@ pub const AudioPlayer = struct {
         );
 
         if (err != c.paNoError) {
-            std.debug.print("PortAudio open stream error: {d}\n", .{err});
             return error.PortAudioOpenStreamFailed;
         }
 
-        std.debug.print("[Debug] Stream opened successfully\n", .{});
         self.stream = stream;
 
         const err2 = c.Pa_StartStream(stream);
@@ -126,7 +114,6 @@ pub const AudioPlayer = struct {
         }
 
         self.is_playing = true;
-        std.debug.print("Playing audio...\n", .{});
 
         while (c.Pa_IsStreamActive(stream) > 0) {
             std.Thread.sleep(100_000_000); // 100ms
