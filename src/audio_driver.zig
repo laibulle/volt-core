@@ -62,10 +62,9 @@ pub const AudioDriver = struct {
 /// Detect which driver should be used based on platform
 pub fn selectDriver() type {
     const builtin = @import("builtin");
-    // Use PortAudio on both platforms for now
-    // PortAudio is stable and cross-platform
-    // CoreAudio implementation pending full testing
-    if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
+    if (comptime builtin.os.tag == .macos) {
+        return @import("drivers/coreaudio_driver.zig").CoreAudioDriver;
+    } else if (comptime builtin.os.tag == .linux) {
         return @import("drivers/portaudio_driver.zig").PortAudioDriver;
     } else {
         @compileError("Unsupported platform - only macOS and Linux are supported");

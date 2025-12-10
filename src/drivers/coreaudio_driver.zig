@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @cImport({
     @cInclude("CoreAudio/CoreAudio.h");
     @cInclude("AudioToolbox/AudioToolbox.h");
+    @cInclude("CoreFoundation/CoreFoundation.h");
 });
 const effects = @import("../effects.zig");
 const AudioDriver = @import("../audio_driver.zig").AudioDriver;
@@ -35,13 +36,146 @@ pub const CoreAudioDriver = struct {
 
         std.debug.print("\nAvailable Audio Devices (CoreAudio - Native macOS):\n", .{});
         std.debug.print("==================================================\n\n", .{});
-        std.debug.print("[0] Default Input\n", .{});
-        std.debug.print("    Input Channels: 1\n", .{});
-        std.debug.print("    Output Channels: 0\n\n", .{});
-        std.debug.print("[1] Default Output\n", .{});
-        std.debug.print("    Input Channels: 0\n", .{});
-        std.debug.print("    Output Channels: 2\n\n", .{});
-        std.debug.print("[Note: Using default system audio I/O devices]\n\n", .{});
+
+        // Get system object
+        const system_object = c.kAudioObjectSystemObject;
+
+        // Get the size of the device list
+        var property_address: c.AudioObjectPropertyAddress = undefined;
+        property_address.mSelector = c.kAudioHardwarePropertyDevices;
+        property_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+        property_address.mElement = c.kAudioObjectPropertyElementMaster;
+
+        var devices_size: u32 = 0;
+        var err = c.AudioObjectGetPropertyDataSize(
+            system_object,
+            &property_address,
+            0,
+            null,
+            &devices_size,
+        );
+
+        if (err != 0) {
+            std.debug.print("Error getting device list size: {d}\n", .{err});
+            return;
+        }
+
+        const device_count = devices_size / @sizeOf(c.AudioDeviceID);
+        if (device_count == 0) {
+            std.debug.print("No audio devices found\n\n", .{});
+            return;
+        }
+
+        // Allocate space for device list
+        const devices = std.heap.page_allocator.alloc(c.AudioDeviceID, device_count) catch {
+            std.debug.print("Error allocating device list\n", .{});
+            return;
+        };
+        defer std.heap.page_allocator.free(devices);
+
+        // Get the device list
+        err = c.AudioObjectGetPropertyData(
+            system_object,
+            &property_address,
+            0,
+            null,
+            &devices_size,
+            devices.ptr,
+        );
+
+        if (err != 0) {
+            std.debug.print("Error getting device list: {d}\n", .{err});
+            return;
+        }
+
+        // Enumerate each device
+        for (devices, 0..) |device_id, i| {
+            // Get device name
+            property_address.mSelector = c.kAudioObjectPropertyName;
+            var name_cfstring: ?*anyopaque = null;
+            var name_cfstring_size: u32 = @sizeOf(?*anyopaque);
+
+            err = c.AudioObjectGetPropertyData(
+                device_id,
+                &property_address,
+                0,
+                null,
+                &name_cfstring_size,
+                @ptrCast(&name_cfstring),
+            );
+
+            var device_name: [256]u8 = undefined;
+            @memset(&device_name, 0);
+
+            if (err == 0 and name_cfstring != null) {
+                // Convert CFStringRef to C string
+                const cfstring_ref: c.CFStringRef = @ptrCast(@alignCast(name_cfstring));
+                const got_string = c.CFStringGetCString(cfstring_ref, @ptrCast(&device_name), device_name.len, c.kCFStringEncodingUTF8);
+                if (got_string == 0) {
+                    _ = std.fmt.bufPrint(&device_name, "Device 0x{x}", .{device_id}) catch {};
+                }
+            } else {
+                _ = std.fmt.bufPrint(&device_name, "Device 0x{x}", .{device_id}) catch {};
+            }
+
+            // Get input channels
+            property_address.mSelector = c.kAudioDevicePropertyStreamConfiguration;
+            property_address.mScope = c.kAudioDevicePropertyScopeInput;
+            var input_buflist_size: u32 = 0;
+
+            _ = c.AudioObjectGetPropertyDataSize(
+                device_id,
+                &property_address,
+                0,
+                null,
+                &input_buflist_size,
+            );
+
+            var input_channels: u32 = 0;
+            if (input_buflist_size > 0) {
+                input_channels = input_buflist_size / @sizeOf(c.AudioBuffer);
+            }
+
+            // Get output channels
+            property_address.mScope = c.kAudioDevicePropertyScopeOutput;
+            var output_buflist_size: u32 = 0;
+
+            _ = c.AudioObjectGetPropertyDataSize(
+                device_id,
+                &property_address,
+                0,
+                null,
+                &output_buflist_size,
+            );
+
+            var output_channels: u32 = 0;
+            if (output_buflist_size > 0) {
+                output_channels = output_buflist_size / @sizeOf(c.AudioBuffer);
+            }
+
+            // Get nominal sample rate
+            property_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+            property_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+            var sample_rate: f64 = 0.0;
+            var sample_rate_size: u32 = @sizeOf(f64);
+
+            err = c.AudioObjectGetPropertyData(
+                device_id,
+                &property_address,
+                0,
+                null,
+                &sample_rate_size,
+                &sample_rate,
+            );
+
+            std.debug.print("[{d}] {s}\n", .{ i, std.mem.sliceTo(&device_name, 0) });
+            std.debug.print("    Input Channels: {d}\n", .{input_channels});
+            std.debug.print("    Output Channels: {d}\n", .{output_channels});
+            if (err == 0) {
+                std.debug.print("    Sample Rate: {d:.0} Hz\n", .{sample_rate});
+            }
+            std.debug.print("    Device ID: 0x{x}\n\n", .{device_id});
+        }
     }
 
     pub fn startProcessing(
