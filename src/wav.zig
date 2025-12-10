@@ -10,11 +10,13 @@ pub const WAVWriter = struct {
         };
     }
 
-    pub fn writeBuffer(self: *const WAVWriter, filename: []const u8, buffer: *const audio.AudioBuffer) !void {
+    pub fn writeBuffer(self: WAVWriter, filename: []const u8, buffer: *const audio.AudioBuffer) !void {
         const file = try std.fs.cwd().createFile(filename, .{});
         defer file.close();
 
-        const writer = file.writer();
+        var write_buffer: [8192]u8 = undefined;
+        var buffered_writer = std.io.bufferedWriter(file.writer());
+        const writer = buffered_writer.writer();
         
         // WAV header
         try writer.writeAll("RIFF");
@@ -51,5 +53,7 @@ pub const WAVWriter = struct {
             const int_sample = @as(i16, @intFromFloat(clamped * 32767.0));
             try writer.writeInt(i16, int_sample, .little);
         }
+
+        try buffered_writer.flush();
     }
 };
