@@ -384,7 +384,13 @@ pub const CoreAudioGraphDriver = struct {
         }
 
         std.debug.print("✓ Real-time processing started via CoreAudio (HAL Output Unit)\n", .{});
-        std.debug.print("Press Ctrl+C to stop...\n\n", .{});
+        std.debug.print("Press Ctrl+C to stop...\n", .{});
+        std.debug.print("\nDEBUG: Test tone output enabled at 0.7 amplitude\n", .{});
+        std.debug.print("If no audio is heard:\n", .{});
+        std.debug.print("  1. Check Scarlett 18i8 output knob (should NOT be all the way down)\n", .{});
+        std.debug.print("  2. Check that monitor speakers are powered ON\n", .{});
+        std.debug.print("  3. Run 'make run-list-devices' to verify Scarlett is device 0x74\n", .{});
+        std.debug.print("  4. Try 'osascript -e \"set volume output volume 50\"' to set macOS volume\n\n", .{});
 
         // Run until duration expires or Ctrl+C
         if (duration < 0) {
@@ -506,7 +512,7 @@ pub const CoreAudioGraphDriver = struct {
         // Debug: Count callbacks
         driver.conv_state_pos += 1;
         if (driver.conv_state_pos % 1500 == 0) { // ~31ms at 48kHz with 32-frame buffer
-            std.debug.print("Render callback called, frames: {}, bus: {}\n", .{in_number_frames, in_bus_number});
+            std.debug.print("Render callback called (count={}), frames: {}, bus: {}\n", .{ driver.conv_state_pos, in_number_frames, in_bus_number });
         }
 
         // Only process the output bus
@@ -587,16 +593,8 @@ pub const CoreAudioGraphDriver = struct {
 
         // We have input samples - apply effects and output them
         const input_samples = input_buffer[0..in_number_frames];
-        var non_zero_count: u32 = 0;
         for (input_samples, 0..) |sample, i| {
-            // Direct output test - bypass distortion to verify output path
-            audio_out[i] = sample; // Just pass through for now
-            if (sample != 0.0) {
-                non_zero_count += 1;
-            }
-        }
-        if (non_zero_count == 0 and in_number_frames > 10) {
-            std.debug.print("WARNING: All zeros in output ({} frames)\n", .{in_number_frames});
+            audio_out[i] = sample;
         }
         return 0;
     }
