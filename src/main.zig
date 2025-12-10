@@ -42,7 +42,7 @@ pub fn main() !void {
 
     // Apply distortion effect
     var distortion = volt_core.effects.Distortion{
-        .drive = 2.5, // Moderate-high distortion
+        .drive = 6.5, // Moderate-high distortion
         .tone = 0.8, // Warm tone
     };
 
