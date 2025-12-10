@@ -287,8 +287,8 @@ pub const CoreAudioGraphDriver = struct {
 
         driver.output_unit = driver.input_unit;
 
-        // Enable input scope (to capture from input device)
-        var enable: u32 = 1;
+        // Disable input scope passthrough (we don't want dry signal)
+        var enable: u32 = 0;
         err = c.AudioUnitSetProperty(
             driver.input_unit,
             c.kAudioOutputUnitProperty_EnableIO,
@@ -298,11 +298,12 @@ pub const CoreAudioGraphDriver = struct {
             @sizeOf(u32),
         );
         if (err != 0) {
-            std.debug.print("Warning: enabling input IO returned: {d}\n", .{err});
+            std.debug.print("Warning: disabling input IO returned: {d}\n", .{err});
         }
 
-        // Set input device
-        if (driver.input_device_id != 0) {
+        // Set input device (not needed since we disabled input passthrough, but kept for reference)
+        // We're using Audio Queue for input capture instead
+        if (false and driver.input_device_id != 0) {
             _ = c.AudioUnitSetProperty(
                 driver.input_unit,
                 c.kAudioOutputUnitProperty_CurrentDevice,
