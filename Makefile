@@ -11,13 +11,7 @@ run-list-devices:
 	zig build run -- --list-devices
 
 test:
-	@echo "Running effects port interface tests..."
-	@zig test src/ports/effects_test.zig
-	@echo ""
-	@echo "✓ All port interface tests passed!"
-
-test-all:
-	@./test.sh
+	zig build test
 
 build:
 	zig build
@@ -25,4 +19,4 @@ build:
 clean:
 	rm -rf zig-cache zig-out
 
-.PHONY: run-sample run-rt-portaudio run-rt run-list-devices test test-all build clean
+.PHONY: run-sample run-rt-portaudio run-rt run-list-devices test build clean
