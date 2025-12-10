@@ -1,5 +1,8 @@
 const std = @import("std");
 const volt_core = @import("volt_core");
+const c = @cImport({
+    @cInclude("portaudio.h");
+});
 
 pub fn main() !void {
     // Setup allocator
@@ -14,6 +17,8 @@ pub fn main() !void {
     var use_realtime = false;
     var list_devices = false;
     var duration: f32 = 10.0; // Default 10 seconds for realtime
+    var input_device: i32 = -1; // -1 means use default
+    var output_device: i32 = -1; // -1 means use default
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -26,14 +31,26 @@ pub fn main() !void {
                 duration = try std.fmt.parseFloat(f32, args[i + 1]);
                 i += 1;
             }
+        } else if (std.mem.eql(u8, args[i], "--input-device")) {
+            if (i + 1 < args.len) {
+                input_device = try std.fmt.parseInt(i32, args[i + 1], 10);
+                i += 1;
+            }
+        } else if (std.mem.eql(u8, args[i], "--output-device")) {
+            if (i + 1 < args.len) {
+                output_device = try std.fmt.parseInt(i32, args[i + 1], 10);
+                i += 1;
+            }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
             std.debug.print("Usage: volt_core [options]\n", .{});
             std.debug.print("Options:\n", .{});
-            std.debug.print("  --list-devices, -ld        List available audio devices\n", .{});
-            std.debug.print("  --realtime, -rt            Use ASIO input (real-time guitar input)\n", .{});
-            std.debug.print("  --duration, -d <seconds>   Duration for realtime mode (default: 10s)\n", .{});
-            std.debug.print("  --help, -h                 Show this help message\n", .{});
+            std.debug.print("  --list-devices, -ld               List available audio devices\n", .{});
+            std.debug.print("  --realtime, -rt                   Use ASIO input (real-time guitar input)\n", .{});
+            std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
+            std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
+            std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: 10s)\n", .{});
+            std.debug.print("  --help, -h                        Show this help message\n", .{});
             return;
         }
     }
@@ -74,18 +91,29 @@ pub fn main() !void {
         var processor = try volt_core.realtime_processor.RealtimeProcessor.init(allocator);
         defer processor.deinit();
 
-        // List available devices
-        processor.listDevices();
+        // Determine devices to use
+        var selected_input: c.PaDeviceIndex = undefined;
+        var selected_output: c.PaDeviceIndex = undefined;
 
-        // Prompt user to select devices
-        const devices = try processor.promptDeviceSelection();
+        if (input_device >= 0 and output_device >= 0) {
+            // User provided specific devices
+            selected_input = @as(c.PaDeviceIndex, @intCast(input_device));
+            selected_output = @as(c.PaDeviceIndex, @intCast(output_device));
+            std.debug.print("✓ Using specified devices\n", .{});
+        } else {
+            // List devices and let user choose (or use defaults)
+            processor.listDevices();
+            const devices = try processor.promptDeviceSelection();
+            selected_input = devices.input_device;
+            selected_output = devices.output_device;
+        }
 
-        std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
+        std.debug.print("\nStarting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
         std.debug.print("(Cabinet: Celestion Vintage 30)\n\n", .{});
 
-        try processor.startProcessing(&distortion, &convolver, 44100, duration, devices.input_device, devices.output_device);
+        try processor.startProcessing(&distortion, &convolver, 44100, duration, selected_input, selected_output);
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);
