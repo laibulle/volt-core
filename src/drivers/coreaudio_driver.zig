@@ -352,13 +352,13 @@ pub const CoreAudioDriver = struct {
                 _ = c.AudioComponentInstanceDispose(driver.audio_unit);
             }
         }
-        
+
         // Free convolution state buffer
         if (driver.conv_state != null and driver.conv_state_len > 0) {
             const conv_state_slice = driver.conv_state[0..driver.conv_state_len];
             driver.allocator.free(conv_state_slice);
         }
-        
+
         driver.allocator.destroy(driver);
         g_driver_instance = null;
     }
