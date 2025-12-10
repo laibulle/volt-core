@@ -12,12 +12,15 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     var use_realtime = false;
+    var list_devices = false;
     var duration: f32 = 10.0; // Default 10 seconds for realtime
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--realtime") or std.mem.eql(u8, args[i], "-rt")) {
             use_realtime = true;
+        } else if (std.mem.eql(u8, args[i], "--list-devices") or std.mem.eql(u8, args[i], "-ld")) {
+            list_devices = true;
         } else if (std.mem.eql(u8, args[i], "--duration") or std.mem.eql(u8, args[i], "-d")) {
             if (i + 1 < args.len) {
                 duration = try std.fmt.parseFloat(f32, args[i + 1]);
@@ -27,6 +30,7 @@ pub fn main() !void {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
             std.debug.print("Usage: volt_core [options]\n", .{});
             std.debug.print("Options:\n", .{});
+            std.debug.print("  --list-devices, -ld        List available audio devices\n", .{});
             std.debug.print("  --realtime, -rt            Use ASIO input (real-time guitar input)\n", .{});
             std.debug.print("  --duration, -d <seconds>   Duration for realtime mode (default: 10s)\n", .{});
             std.debug.print("  --help, -h                 Show this help message\n", .{});
@@ -36,6 +40,13 @@ pub fn main() !void {
 
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
+
+    if (list_devices) {
+        var processor = try volt_core.realtime_processor.RealtimeProcessor.init(allocator);
+        defer processor.deinit();
+        processor.listDevices();
+        return;
+    }
 
     if (use_realtime) {
         // Load IR for convolution
