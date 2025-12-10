@@ -5,7 +5,34 @@ const c = @cImport({
 });
 
 const BUFFER_COUNT = 4;
-const BUFFER_SIZE = 512; // Samples per buffer - small for low latency (matching buffer-size 32)
+const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
+
+// Helper function to get device buffer size (frames per I/O cycle)
+fn getDeviceBufferSize(device_id: c.AudioDeviceID) u32 {
+    const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
+    var buffer_size: u32 = 512; // Default fallback
+    var size: u32 = @sizeOf(u32);
+
+    const err = c.AudioObjectGetPropertyData(
+        device_id,
+        &c.AudioObjectPropertyAddress{
+            .mSelector = kAudioDevicePropertyBufferFrameSize,
+            .mScope = c.kAudioObjectPropertyScopeGlobal,
+            .mElement = c.kAudioObjectPropertyElementMain,
+        },
+        0,
+        null,
+        &size,
+        @ptrCast(&buffer_size),
+    );
+
+    if (err != 0) {
+        std.debug.print("Warning: Could not get device buffer size, using 512\n", .{});
+        return 512;
+    }
+
+    return buffer_size;
+}
 
 // Helper function to get device sample rate
 fn getDeviceSampleRate(device_id: c.AudioDeviceID) f64 {
@@ -63,29 +90,36 @@ fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
 pub const AudioQueueInput = struct {
     queue: c.AudioQueueRef = null,
     allocator: std.mem.Allocator,
+    buffer_size: u32, // Device buffer size
 
-    // Input ring buffer - thread-safe storage for captured samples
-    input_buffer: [BUFFER_SIZE * BUFFER_COUNT]f32 = undefined,
+    // Input ring buffer - dynamically allocated based on device
+    input_buffer: []f32,
     write_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     samples_captured: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
     const Self = @This();
-
     pub fn init(allocator: std.mem.Allocator, device_id: c.AudioDeviceID) !Self {
+        // Query device configuration
+        const device_buffer_size = getDeviceBufferSize(device_id);
+        const device_sample_rate = getDeviceSampleRate(device_id);
+        
+        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, sample rate={d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, device_id });
+
+        // Allocate ring buffer dynamically
+        const ring_buffer_size = device_buffer_size * BUFFER_COUNT;
+        const input_buffer = try allocator.alloc(f32, ring_buffer_size);
+        @memset(input_buffer, 0.0);
+        
         var self = Self{
             .allocator = allocator,
+            .buffer_size = device_buffer_size,
+            .input_buffer = input_buffer,
         };
-
-        // Query the actual device sample rate
-        const actual_sample_rate = getDeviceSampleRate(device_id);
-
-        // TEMPORARY: Force 44.1kHz to test if pitch issue is sample rate related
-        const use_sample_rate: f64 = 44100.0;
-        std.debug.print("🎵 Audio Queue INPUT: Requested={d}, Using={d} Hz (device 0x{x})\n", .{ actual_sample_rate, use_sample_rate, device_id });
+        std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, sample rate={d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, device_id });
 
         // Create audio format for input (mono, device sample rate, float32)
         var format: c.AudioStreamBasicDescription = undefined;
-        format.mSampleRate = use_sample_rate;
+        format.mSampleRate = device_sample_rate;
         format.mFormatID = c.kAudioFormatLinearPCM;
         format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked;
         format.mBytesPerPacket = 4; // 32-bit float
@@ -111,6 +145,7 @@ pub const AudioQueueInput = struct {
 
         if (err != 0) {
             std.debug.print("Error creating audio queue: {}\n", .{err});
+            allocator.free(input_buffer);
             return error.AudioQueueCreationFailed;
         }
 
@@ -126,8 +161,8 @@ pub const AudioQueueInput = struct {
         );
         if (err == 0) {
             std.debug.print("🔍 Audio Queue ACTUAL sample rate: {d} Hz (after creation)\n", .{actual_format.mSampleRate});
-            if (actual_format.mSampleRate != actual_sample_rate) {
-                std.debug.print("⚠️  WARNING: Sample rate mismatch! Requested {d}, got {d}\n", .{ actual_sample_rate, actual_format.mSampleRate });
+            if (actual_format.mSampleRate != device_sample_rate) {
+                std.debug.print("⚠️  WARNING: Sample rate mismatch! Requested {d}, got {d}\n", .{ device_sample_rate, actual_format.mSampleRate });
             }
         }
 
@@ -150,10 +185,10 @@ pub const AudioQueueInput = struct {
             }
         }
 
-        // Allocate and enqueue buffers
+        // Allocate and enqueue buffers using device buffer size
         for (0..BUFFER_COUNT) |_| {
             var buffer: c.AudioQueueBufferRef = null;
-            err = c.AudioQueueAllocateBuffer(self.queue, BUFFER_SIZE * 4, &buffer);
+            err = c.AudioQueueAllocateBuffer(self.queue, device_buffer_size * @sizeOf(f32), &buffer);
             if (err != 0) {
                 std.debug.print("Error allocating audio queue buffer: {}\n", .{err});
                 return error.BufferAllocationFailed;
