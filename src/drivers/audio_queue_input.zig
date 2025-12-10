@@ -4,7 +4,7 @@ const c = @cImport({
     @cInclude("AudioToolbox/AudioToolbox.h");
 });
 
-const AUDIO_QUEUE_BUFFER_COUNT = 4; // Number of Audio Queue buffers (affects OS latency)
+const AUDIO_QUEUE_BUFFER_COUNT = 3; // Number of Audio Queue buffers (only affects memory, not latency)
 const RING_BUFFER_SIZE_MS = 32; // Ring buffer size in milliseconds (affects stability vs latency)
 const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
 
