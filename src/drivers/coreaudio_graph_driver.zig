@@ -337,7 +337,7 @@ pub const CoreAudioGraphDriver = struct {
         // Note: Format setting often fails on HALOutput units during active I/O.
         // CoreAudio will negotiate format automatically, so we just proceed.
 
-        // Set the render callback
+        // Set the render callback on the OUTPUT bus to capture and process audio
         var callback: c.AURenderCallbackStruct = undefined;
         callback.inputProc = coreAudioSimpleCallback;
         callback.inputProcRefCon = driver;
@@ -345,7 +345,7 @@ pub const CoreAudioGraphDriver = struct {
         err = c.AudioUnitSetProperty(
             driver.input_unit,
             c.kAudioUnitProperty_SetRenderCallback,
-            c.kAudioUnitScope_Input,
+            c.kAudioUnitScope_Output,
             0,
             &callback,
             @sizeOf(c.AURenderCallbackStruct),
@@ -533,20 +533,10 @@ pub const CoreAudioGraphDriver = struct {
         );
 
         if (render_err != 0) {
-            // If render fails, output test tone
-            var phase: f32 = 0.0;
-            const frequency = 440.0;
-            const sample_rate = 44100.0;
-            const phase_increment = @as(f32, @floatCast(frequency / sample_rate));
-
-            for (audio_out) |*sample_ptr| {
-                const sine_val = @sin(phase * 2.0 * std.math.pi) * 0.1;
-                sample_ptr.* = sine_val;
-                phase += phase_increment;
-                if (phase >= 1.0) {
-                    phase -= 1.0;
-                }
-            }
+            // AudioUnitRender cannot be used to pull input on output callback
+            // For now, output silence - we need a different architecture for input capture
+            // (e.g., separate input callback or Audio Queue)
+            @memset(audio_out, 0.0);
             return 0;
         }
 
