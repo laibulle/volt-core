@@ -490,7 +490,7 @@ pub const CoreAudioGraphDriver = struct {
                 @sizeOf(u32),
                 &desired_buffer_size,
             );
-            
+
             // Verify
             var input_buffer_size: u32 = 0;
             _ = c.AudioObjectGetPropertyData(

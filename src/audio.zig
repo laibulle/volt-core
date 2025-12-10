@@ -1,9 +1,11 @@
 const std = @import("std");
+const effects_port = @import("ports/effects.zig");
 
+// Re-export and extend AudioBuffer from ports
 pub const AudioBuffer = struct {
     samples: []f32,
-    sample_rate: u32,
     channel_count: u32,
+    sample_rate: u32,
 
     pub fn init(allocator: std.mem.Allocator, sample_count: usize, channel_count: u32, sample_rate: u32) !AudioBuffer {
         const samples = try allocator.alloc(f32, sample_count * channel_count);
