@@ -7,6 +7,7 @@ const c = @cImport({
 });
 const effects = @import("../effects.zig");
 const AudioDriver = @import("../audio_driver.zig").AudioDriver;
+const AudioQueueInput = @import("audio_queue_input.zig").AudioQueueInput;
 
 var g_driver_instance: ?*CoreAudioGraphDriver = null;
 
@@ -25,6 +26,7 @@ pub const CoreAudioGraphDriver = struct {
     sample_rate: f64 = 44100.0,
     input_device_id: c.AudioDeviceID = 0,
     output_device_id: c.AudioDeviceID = 0,
+    input_queue: ?*AudioQueueInput = null,
 
     pub fn init(allocator: std.mem.Allocator) !AudioDriver {
         const driver = try allocator.create(CoreAudioGraphDriver);
@@ -371,6 +373,16 @@ pub const CoreAudioGraphDriver = struct {
 
         driver.is_running = true;
 
+        // Initialize input capture queue
+        driver.input_queue = null;
+        if (AudioQueueInput.init(driver.allocator, driver.input_device_id)) |input_queue| {
+            const queue_ptr = try driver.allocator.create(AudioQueueInput);
+            queue_ptr.* = input_queue;
+            driver.input_queue = queue_ptr;
+        } else |init_err| {
+            std.debug.print("Warning: Could not initialize input queue: {}\n", .{init_err});
+        }
+
         std.debug.print("✓ Real-time processing started via CoreAudio (HAL Output Unit)\n", .{});
         std.debug.print("Press Ctrl+C to stop...\n\n", .{});
 
@@ -402,6 +414,12 @@ pub const CoreAudioGraphDriver = struct {
 
     pub fn deinit(self: *AudioDriver) void {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
+
+        // Stop and cleanup input queue
+        if (driver.input_queue) |queue| {
+            queue.deinit();
+            driver.input_queue = null;
+        }
 
         // Stop and dispose audio unit
         if (driver.input_unit != null) {
@@ -534,28 +552,25 @@ pub const CoreAudioGraphDriver = struct {
 
         if (render_err != 0) {
             // AudioUnitRender cannot be used to pull input on output callback
-            // For testing, generate a guitar-like signal (square wave at 220Hz = A3 note)
-            // This lets us test the effects chain before implementing proper input capture
-            const frequency = 220.0; // A3 note (guitar low E is ~82 Hz)
-            const sample_rate = 48000.0; // Match device sample rate
-            const phase_increment = @as(f32, @floatCast(frequency / sample_rate));
-
-            // Use the driver's counter for continuous phase
-            driver.conv_state_pos += in_number_frames;
-            const pos_f64 = @as(f64, @floatFromInt(@as(i64, @intCast(driver.conv_state_pos))));
-            var phase = @as(f32, @floatCast(pos_f64 / 48000.0));
-            phase = phase - @floor(phase); // Keep phase in [0, 1)
-
-            for (audio_out, 0..) |_, i| {
-                // Square wave (simple guitar-like signal for testing)
-                const sample = if (phase < 0.5) @as(f32, 0.3) else @as(f32, -0.3);
-                audio_out[i] = sample;
-                phase += phase_increment;
-                if (phase >= 1.0) {
-                    phase -= 1.0;
+            // Try to get samples from input queue instead
+            for (0..in_number_frames) |i| {
+                if (driver.input_queue) |queue| {
+                    if (queue.getSample()) |sample| {
+                        input_buffer[i] = sample;
+                    } else {
+                        // No input available yet, use silence
+                        input_buffer[i] = 0.0;
+                    }
+                } else {
+                    // No input queue - generate test tone as fallback
+                    driver.conv_state_pos += 1;
+                    const pos_f64 = @as(f64, @floatFromInt(@as(i64, @intCast(driver.conv_state_pos))));
+                    const phase = @as(f32, @floatCast(@mod(pos_f64, 48000.0) / 48000.0));
+                    
+                    const sample_test = if (phase < 0.5) @as(f32, 0.3) else @as(f32, -0.3);
+                    input_buffer[i] = sample_test;
                 }
             }
-            return 0;
         }
 
         // We have input samples - apply effects and output them
