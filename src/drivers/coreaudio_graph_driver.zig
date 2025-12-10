@@ -337,6 +337,46 @@ pub const CoreAudioGraphDriver = struct {
 
         std.debug.print("🎵 Output device sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
 
+        // Set device buffer size to 32 frames for low latency
+        const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
+        var desired_buffer_size: u32 = 32;
+        if (driver.output_device_id != 0) {
+            prop_address.mSelector = kAudioDevicePropertyBufferFrameSize;
+            prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+            prop_address.mElement = 0;
+
+            err = c.AudioObjectSetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                @sizeOf(u32),
+                &desired_buffer_size,
+            );
+            if (err != 0) {
+                std.debug.print("⚠️  Warning: Could not set output device buffer size to {d}: error {d}\n", .{ desired_buffer_size, err });
+            } else {
+                std.debug.print("✓ Set output device buffer size to {d} frames\n", .{desired_buffer_size});
+            }
+        }
+
+        // Also set input device buffer size
+        if (driver.input_device_id != 0) {
+            err = c.AudioObjectSetPropertyData(
+                driver.input_device_id,
+                &prop_address,
+                0,
+                null,
+                @sizeOf(u32),
+                &desired_buffer_size,
+            );
+            if (err != 0) {
+                std.debug.print("⚠️  Warning: Could not set input device buffer size to {d}: error {d}\n", .{ desired_buffer_size, err });
+            } else {
+                std.debug.print("✓ Set input device buffer size to {d} frames\n", .{desired_buffer_size});
+            }
+        }
+
         // Note: Format setting often fails on HALOutput units during active I/O.
         // CoreAudio will negotiate format automatically, so we just proceed.
 
@@ -570,9 +610,9 @@ pub const CoreAudioGraphDriver = struct {
 
         if (render_err != 0) {
             // AudioUnitRender cannot be used to pull input on output callback
-            // Generate 220Hz test tone or use input from queue
+            // Use input from Audio Queue instead
             const frequency = 220.0;
-            const sample_rate = 48000.0;
+            const sample_rate = 44100.0; // Match Audio Queue sample rate
 
             var input_sample_count: u32 = 0;
             var test_tone_count: u32 = 0;

@@ -4,13 +4,13 @@ const c = @cImport({
     @cInclude("AudioToolbox/AudioToolbox.h");
 });
 
-const BUFFER_COUNT = 4;
+const BUFFER_COUNT = 16; // Increased for 32-frame buffers to prevent underruns
 const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
 
 // Helper function to get device buffer size (frames per I/O cycle)
 fn getDeviceBufferSize(device_id: c.AudioDeviceID) u32 {
     const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
-    var buffer_size: u32 = 512; // Default fallback
+    var buffer_size: u32 = 32; // Default fallback matching typical size 32
     var size: u32 = @sizeOf(u32);
 
     const err = c.AudioObjectGetPropertyData(
@@ -27,10 +27,12 @@ fn getDeviceBufferSize(device_id: c.AudioDeviceID) u32 {
     );
 
     if (err != 0) {
-        std.debug.print("Warning: Could not get device buffer size, using 512\n", .{});
-        return 512;
+        std.debug.print("Warning: Could not get device buffer size, using 32\n", .{});
+        return 32;
     }
 
+    // Use the device's actual buffer size
+    std.debug.print("🔧 Device buffer size: {d} frames\n", .{buffer_size});
     return buffer_size;
 }
 
