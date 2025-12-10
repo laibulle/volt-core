@@ -444,7 +444,7 @@ pub const CoreAudioGraphDriver = struct {
         var bufferListSize: u32 = @sizeOf(c.AudioBufferList);
         prop_address.mSelector = kAudioDevicePropertyStreamConfiguration;
         prop_address.mScope = c.kAudioDevicePropertyScopeOutput;
-        
+
         var output_channels: u32 = 2; // Default stereo
         if (driver.output_device_id != 0) {
             err = c.AudioObjectGetPropertyData(
@@ -695,19 +695,23 @@ pub const CoreAudioGraphDriver = struct {
             return 0;
         }
 
-        // Get all output buffers (non-interleaved format has one buffer per channel)
+        // Get buffer info
         const num_buffers = io_data.*.mNumberBuffers;
-        
-        // Get the first channel buffer (left/main output)
+        const channels_per_buffer = io_data.*.mBuffers[0].mNumberChannels;
+
+        // Debug output on first callback
+        if (driver.conv_state_pos < 2) {
+            std.debug.print("🔍 Callback buffers: {d}, channels per buffer: {d}\n", .{ num_buffers, channels_per_buffer });
+        }
+
+        // Get the buffer pointer
         const buffer_ptr = io_data.*.mBuffers[0].mData;
         if (buffer_ptr == null) {
             return 0;
         }
 
         const audio_ptr: [*]f32 = @ptrCast(@alignCast(buffer_ptr));
-        const audio_out = audio_ptr[0..in_number_frames];
-
-        // Check if the pre-render action indicates we should process input
+        const audio_out = audio_ptr[0..in_number_frames]; // Check if the pre-render action indicates we should process input
         const preRenderFlag: c.AudioUnitRenderActionFlags = 0x04; // kAudioUnitRenderAction_PreRender
         if ((io_action_flags.* & preRenderFlag) != 0) {
             // Pre-render pass - just return 0 to allow the unit to process
@@ -812,15 +816,13 @@ pub const CoreAudioGraphDriver = struct {
             max_output = @max(max_output, @abs(clamped));
         }
 
-        // Copy first channel to all other channels for multi-channel devices
-        // This ensures we output to all device channels (e.g., Scarlett 18i8 has 8 outputs)
-        if (num_buffers > 1) {
-            for (1..num_buffers) |buf_idx| {
-                const other_buffer_ptr = io_data.*.mBuffers[buf_idx].mData;
-                if (other_buffer_ptr) |ptr| {
-                    const other_audio: [*]f32 = @ptrCast(@alignCast(ptr));
-                    @memcpy(other_audio[0..in_number_frames], audio_out);
-                }
+        // For multi-channel buffers, duplicate mono signal to all channels
+        // With non-interleaved format, channels are sequential in memory
+        if (channels_per_buffer > 1) {
+            // Each channel has in_number_frames samples
+            for (1..channels_per_buffer) |ch| {
+                const offset = ch * in_number_frames;
+                @memcpy(audio_ptr[offset .. offset + in_number_frames], audio_out);
             }
         }
 
