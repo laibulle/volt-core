@@ -4,6 +4,7 @@ const std = @import("std");
 pub const audio = @import("audio.zig");
 pub const effects = @import("effects.zig");
 pub const wav_loader = @import("wav_loader.zig");
+pub const ir_loader = @import("ir_loader.zig");
 pub const audio_player = @import("audio_player.zig");
 
 pub fn bufferedPrint() !void {
