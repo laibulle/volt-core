@@ -7,7 +7,32 @@ const c = @cImport({
 const BUFFER_COUNT = 3;
 const BUFFER_SIZE = 4096; // Samples per buffer
 
-pub const AudioQueueInput = struct {
+// Helper function to get device UID string (required by Audio Queue)
+fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
+    const kAudioDevicePropertyDeviceUID: u32 = 0x75696420; // 'uid '
+    var uid: c.CFStringRef = null;
+    var size: u32 = @sizeOf(c.CFStringRef);
+    
+    const err = c.AudioObjectGetPropertyData(
+        device_id,
+        &c.AudioObjectPropertyAddress{
+            .mSelector = kAudioDevicePropertyDeviceUID,
+            .mScope = c.kAudioObjectPropertyScopeGlobal,
+            .mElement = c.kAudioObjectPropertyElementMain,
+        },
+        0,
+        null,
+        &size,
+        @ptrCast(&uid),
+    );
+    
+    if (err != 0) {
+        std.debug.print("Error getting device UID for 0x{x}: {}\n", .{ device_id, err });
+        return null;
+    }
+    
+    return uid;
+}pub const AudioQueueInput = struct {
     queue: c.AudioQueueRef = null,
     allocator: std.mem.Allocator,
 
@@ -22,7 +47,6 @@ pub const AudioQueueInput = struct {
         var self = Self{
             .allocator = allocator,
         };
-        _ = device_id; // Note: Cannot set device on null-runloop audio queues
 
         // Create audio format for input (mono, 48kHz, float32)
         var format: c.AudioStreamBasicDescription = undefined;
@@ -53,6 +77,25 @@ pub const AudioQueueInput = struct {
         if (err != 0) {
             std.debug.print("Error creating audio queue: {}\n", .{err});
             return error.AudioQueueCreationFailed;
+        }
+
+        // Set the specific input device (Scarlett instead of default Mac mic)
+        const kAudioQueueProperty_CurrentDevice: u32 = 0x61716364; // 'aqcd'
+        const device_uid = try getDeviceUID(device_id);
+        defer if (device_uid) |uid| c.CFRelease(uid);
+
+        if (device_uid) |uid| {
+            err = c.AudioQueueSetProperty(
+                self.queue,
+                kAudioQueueProperty_CurrentDevice,
+                @ptrCast(&uid),
+                @sizeOf(@TypeOf(uid)),
+            );
+            if (err != 0) {
+                std.debug.print("Warning: Could not set Audio Queue device to 0x{x}: error {}\n", .{ device_id, err });
+            } else {
+                std.debug.print("✓ Audio Queue using device 0x{x}\n", .{device_id});
+            }
         }
 
         // Allocate and enqueue buffers
