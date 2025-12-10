@@ -14,6 +14,7 @@ pub const CoreAudioGraphDriver = struct {
     allocator: std.mem.Allocator,
     audio_graph: c.AUGraph = null,
     input_unit: c.AudioUnit = null,
+    mixer_unit: c.AudioUnit = null,
     output_unit: c.AudioUnit = null,
     is_running: bool = false,
     distortion: ?*effects.Distortion = null,
@@ -221,6 +222,13 @@ pub const CoreAudioGraphDriver = struct {
         input_desc.componentFlags = 0;
         input_desc.componentFlagsMask = 0;
 
+        var mixer_desc: c.AudioComponentDescription = undefined;
+        mixer_desc.componentType = c.kAudioUnitType_Mixer;
+        mixer_desc.componentSubType = c.kAudioUnitSubType_StereoMixer;
+        mixer_desc.componentManufacturer = c.kAudioUnitManufacturer_Apple;
+        mixer_desc.componentFlags = 0;
+        mixer_desc.componentFlagsMask = 0;
+
         var output_desc: c.AudioComponentDescription = undefined;
         output_desc.componentType = c.kAudioUnitType_Output;
         output_desc.componentSubType = c.kAudioUnitSubType_DefaultOutput;
@@ -230,11 +238,18 @@ pub const CoreAudioGraphDriver = struct {
 
         // Add nodes to graph
         var input_node: c.AUNode = 0;
+        var mixer_node: c.AUNode = 0;
         var output_node: c.AUNode = 0;
 
         err = c.AUGraphAddNode(driver.audio_graph, &input_desc, &input_node);
         if (err != 0) {
             std.debug.print("Error adding input node: {d}\n", .{err});
+            return error.AUGraphNodeAddFailed;
+        }
+
+        err = c.AUGraphAddNode(driver.audio_graph, &mixer_desc, &mixer_node);
+        if (err != 0) {
+            std.debug.print("Error adding mixer node: {d}\n", .{err});
             return error.AUGraphNodeAddFailed;
         }
 
@@ -258,13 +273,20 @@ pub const CoreAudioGraphDriver = struct {
             return error.AUGraphNodeInfoFailed;
         }
 
+        var mixer_unit: c.AudioUnit = null;
+        err = c.AUGraphNodeInfo(driver.audio_graph, mixer_node, null, &mixer_unit);
+        if (err != 0) {
+            std.debug.print("Error getting mixer AU: {d}\n", .{err});
+            return error.AUGraphNodeInfoFailed;
+        }
+
         err = c.AUGraphNodeInfo(driver.audio_graph, output_node, null, &driver.output_unit);
         if (err != 0) {
             std.debug.print("Error getting output AU: {d}\n", .{err});
             return error.AUGraphNodeInfoFailed;
         }
 
-        // Set the input device for the input AU
+        // Set the input device for the HAL input unit
         err = c.AudioUnitSetProperty(
             driver.input_unit,
             c.kAudioOutputUnitProperty_CurrentDevice,
@@ -277,7 +299,7 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("Error setting input device: {d}\n", .{err});
         }
 
-        // Set the output device for the output AU
+        // Set the output device for the output unit
         err = c.AudioUnitSetProperty(
             driver.output_unit,
             c.kAudioOutputUnitProperty_CurrentDevice,
@@ -290,7 +312,7 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("Error setting output device: {d}\n", .{err});
         }
 
-        // Set stream format for both units
+        // Set stream format for all units
         var stream_format: c.AudioStreamBasicDescription = undefined;
         stream_format.mSampleRate = driver.sample_rate;
         stream_format.mFormatID = c.kAudioFormatLinearPCM;
@@ -301,6 +323,7 @@ pub const CoreAudioGraphDriver = struct {
         stream_format.mBytesPerFrame = 4;
         stream_format.mBytesPerPacket = 4;
 
+        // Set format for input unit output
         err = c.AudioUnitSetProperty(
             driver.input_unit,
             c.kAudioUnitProperty_StreamFormat,
@@ -313,32 +336,27 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("Error setting input format: {d}\n", .{err});
         }
 
-        err = c.AudioUnitSetProperty(
-            driver.output_unit,
-            c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Input,
-            0,
-            &stream_format,
-            @sizeOf(c.AudioStreamBasicDescription),
-        );
+        // Connect input to mixer
+        err = c.AUGraphConnectNodeInput(driver.audio_graph, input_node, 0, mixer_node, 0);
         if (err != 0) {
-            std.debug.print("Error setting output format: {d}\n", .{err});
-        }
-
-        // Connect input unit output to output unit input
-        err = c.AUGraphConnectNodeInput(driver.audio_graph, input_node, 0, output_node, 0);
-        if (err != 0) {
-            std.debug.print("Error connecting nodes: {d}\n", .{err});
+            std.debug.print("Error connecting input to mixer: {d}\n", .{err});
             return error.AUGraphConnectionFailed;
         }
 
-        // Set the render callback on the output unit to apply effects
+        // Connect mixer to output
+        err = c.AUGraphConnectNodeInput(driver.audio_graph, mixer_node, 0, output_node, 0);
+        if (err != 0) {
+            std.debug.print("Error connecting mixer to output: {d}\n", .{err});
+            return error.AUGraphConnectionFailed;
+        }
+
+        // Set the render callback on the mixer to apply effects
         var callback: c.AURenderCallbackStruct = undefined;
         callback.inputProc = coreAudioGraphCallback;
         callback.inputProcRefCon = driver;
 
         err = c.AudioUnitSetProperty(
-            driver.output_unit,
+            mixer_unit,
             c.kAudioUnitProperty_SetRenderCallback,
             c.kAudioUnitScope_Input,
             0,
@@ -346,7 +364,7 @@ pub const CoreAudioGraphDriver = struct {
             @sizeOf(c.AURenderCallbackStruct),
         );
         if (err != 0) {
-            std.debug.print("Error setting output callback: {d}\n", .{err});
+            std.debug.print("Error setting mixer callback: {d}\n", .{err});
             return error.AudioUnitCallbackSetFailed;
         }
 
