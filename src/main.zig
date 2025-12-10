@@ -101,6 +101,7 @@ pub fn main() !void {
         std.debug.print("(Buffer size: {d} frames)\n\n", .{buffer_size});
 
         try driver.startProcessing(input_device, output_device, buffer_size, duration, &distortion, &convolver);
+        driver.deinit(); // Clean up audio resources
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);

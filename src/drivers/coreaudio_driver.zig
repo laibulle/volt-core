@@ -3,6 +3,7 @@ const c = @cImport({
     @cInclude("CoreAudio/CoreAudio.h");
     @cInclude("AudioToolbox/AudioToolbox.h");
     @cInclude("CoreFoundation/CoreFoundation.h");
+    @cInclude("unistd.h");
 });
 const effects = @import("../effects.zig");
 const AudioDriver = @import("../audio_driver.zig").AudioDriver;
@@ -317,18 +318,15 @@ pub const CoreAudioDriver = struct {
 
         // Run until duration expires or Ctrl+C
         if (duration < 0) {
-            // Run indefinitely - just yield to the OS
+            // Run indefinitely - use short sleeps for responsiveness to signals
             while (driver.is_running) {
-                // Small delay to avoid busy loop
-                var i: u64 = 0;
-                while (i < 10_000_000) : (i += 1) {}
+                _ = c.usleep(100_000); // 100ms sleep
             }
         } else {
             // Wait for duration
             var remaining_seconds = duration;
             while (remaining_seconds > 0 and driver.is_running) {
-                var i: u64 = 0;
-                while (i < 10_000_000) : (i += 1) {}
+                _ = c.usleep(100_000); // 100ms sleep
                 remaining_seconds -= 0.1;
             }
             driver.is_running = false;
@@ -341,16 +339,21 @@ pub const CoreAudioDriver = struct {
         driver.is_running = false;
         if (driver.audio_unit != null) {
             _ = c.AudioOutputUnitStop(driver.audio_unit);
+            _ = c.AudioUnitUninitialize(driver.audio_unit);
+            _ = c.AudioComponentInstanceDispose(driver.audio_unit);
+            driver.audio_unit = null;
         }
     }
 
     pub fn deinit(self: *AudioDriver) void {
         const driver: *CoreAudioDriver = @ptrCast(@alignCast(self.context));
-        if (driver.is_running) {
-            if (driver.audio_unit != null) {
-                _ = c.AudioOutputUnitStop(driver.audio_unit);
-                _ = c.AudioComponentInstanceDispose(driver.audio_unit);
-            }
+
+        // Stop and dispose audio unit if still running
+        if (driver.audio_unit != null) {
+            _ = c.AudioOutputUnitStop(driver.audio_unit);
+            _ = c.AudioUnitUninitialize(driver.audio_unit);
+            _ = c.AudioComponentInstanceDispose(driver.audio_unit);
+            driver.audio_unit = null;
         }
 
         // Free convolution state buffer
