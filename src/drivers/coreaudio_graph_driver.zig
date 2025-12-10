@@ -8,9 +8,9 @@ const c = @cImport({
 const effects = @import("../effects.zig");
 const AudioDriver = @import("../audio_driver.zig").AudioDriver;
 
-var g_driver_instance: ?*CoreAudioDriver = null;
+var g_driver_instance: ?*CoreAudioGraphDriver = null;
 
-pub const CoreAudioDriver = struct {
+pub const CoreAudioGraphDriver = struct {
     allocator: std.mem.Allocator,
     audio_graph: c.AUGraph = null,
     input_unit: c.AudioUnit = null,
@@ -26,8 +26,8 @@ pub const CoreAudioDriver = struct {
     output_device_id: c.AudioDeviceID = 0,
 
     pub fn init(allocator: std.mem.Allocator) !AudioDriver {
-        const driver = try allocator.create(CoreAudioDriver);
-        driver.* = CoreAudioDriver{ .allocator = allocator };
+        const driver = try allocator.create(CoreAudioGraphDriver);
+        driver.* = CoreAudioGraphDriver{ .allocator = allocator };
         g_driver_instance = driver;
 
         return AudioDriver{
@@ -37,24 +37,21 @@ pub const CoreAudioDriver = struct {
     }
 
     pub fn listDevices(self: *AudioDriver) void {
-        const driver: *CoreAudioDriver = @ptrCast(@alignCast(self.context));
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
         _ = driver;
 
         std.debug.print("\nAvailable Audio Devices (CoreAudio - Native macOS):\n", .{});
         std.debug.print("==================================================\n\n", .{});
 
         // Get system object
-        const system_object = c.kAudioObjectSystemObject;
-
-        // Get the size of the device list
         var property_address: c.AudioObjectPropertyAddress = undefined;
         property_address.mSelector = c.kAudioHardwarePropertyDevices;
         property_address.mScope = c.kAudioObjectPropertyScopeGlobal;
-        property_address.mElement = c.kAudioObjectPropertyElementMaster;
+        property_address.mElement = 0;
 
         var devices_size: u32 = 0;
         var err = c.AudioObjectGetPropertyDataSize(
-            system_object,
+            c.kAudioObjectSystemObject,
             &property_address,
             0,
             null,
@@ -62,15 +59,11 @@ pub const CoreAudioDriver = struct {
         );
 
         if (err != 0) {
-            std.debug.print("Error getting device list size: {d}\n", .{err});
+            std.debug.print("Error getting device list size\n", .{});
             return;
         }
 
         const device_count = devices_size / @sizeOf(c.AudioDeviceID);
-        if (device_count == 0) {
-            std.debug.print("No audio devices found\n\n", .{});
-            return;
-        }
 
         // Allocate space for device list
         const devices = std.heap.page_allocator.alloc(c.AudioDeviceID, device_count) catch {
@@ -81,7 +74,7 @@ pub const CoreAudioDriver = struct {
 
         // Get the device list
         err = c.AudioObjectGetPropertyData(
-            system_object,
+            c.kAudioObjectSystemObject,
             &property_address,
             0,
             null,
@@ -159,7 +152,7 @@ pub const CoreAudioDriver = struct {
                 output_channels = output_buflist_size / @sizeOf(c.AudioBuffer);
             }
 
-            // Get nominal sample rate
+            // Get sample rate
             property_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
             property_address.mScope = c.kAudioObjectPropertyScopeGlobal;
             var sample_rate: f64 = 0.0;
@@ -193,10 +186,8 @@ pub const CoreAudioDriver = struct {
         distortion: *anyopaque,
         convolver: *anyopaque,
     ) !void {
-        const driver: *CoreAudioDriver = @ptrCast(@alignCast(self.context));
-        _ = input_device;
-        _ = output_device;
-        _ = buffer_size;
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
+        _ = buffer_size; // Buffer size is managed by CoreAudio
 
         driver.distortion = @ptrCast(@alignCast(distortion));
         driver.convolver = @ptrCast(@alignCast(convolver));
@@ -210,54 +201,98 @@ pub const CoreAudioDriver = struct {
         driver.conv_state_len = conv_state_len;
         driver.conv_state_pos = 0;
 
-        // Create an Audio Unit for input/output
-        var au_desc: c.AudioComponentDescription = undefined;
-        au_desc.componentType = c.kAudioUnitType_Output;
-        au_desc.componentSubType = c.kAudioUnitSubType_DefaultOutput;
-        au_desc.componentManufacturer = c.kAudioUnitManufacturer_Apple;
-        au_desc.componentFlags = 0;
-        au_desc.componentFlagsMask = 0;
+        // Store device IDs (convert from i32)
+        driver.input_device_id = @as(u32, @intCast(input_device));
+        driver.output_device_id = @as(u32, @intCast(output_device));
+        driver.sample_rate = 44100.0;
 
-        const au_component = c.AudioComponentFindNext(null, &au_desc);
-        if (au_component == null) {
-            std.debug.print("Error: Could not find Audio Unit component\n", .{});
-            return error.AudioUnitNotFound;
-        }
-
-        var err = c.AudioComponentInstanceNew(au_component, &driver.audio_unit);
+        // Create the Audio Unit Graph
+        var err = c.NewAUGraph(&driver.audio_graph);
         if (err != 0) {
-            std.debug.print("Error creating Audio Unit instance: {d}\n", .{err});
-            return error.AudioUnitInstanceCreationFailed;
+            std.debug.print("Error creating AUGraph: {d}\n", .{err});
+            return error.AUGraphCreationFailed;
         }
 
-        // Enable input on the input bus (element 1)
-        // Note: These may fail on default output unit - that's okay
-        var enable_input: u32 = 1;
-        _ = c.AudioUnitSetProperty(
-            driver.audio_unit,
-            c.kAudioOutputUnitProperty_EnableIO,
-            c.kAudioUnitScope_Input,
-            1,
-            &enable_input,
-            @sizeOf(u32),
-        );
+        // Create Audio Component descriptions
+        var input_desc: c.AudioComponentDescription = undefined;
+        input_desc.componentType = c.kAudioUnitType_Output;
+        input_desc.componentSubType = c.kAudioUnitSubType_HALOutput;
+        input_desc.componentManufacturer = c.kAudioUnitManufacturer_Apple;
+        input_desc.componentFlags = 0;
+        input_desc.componentFlagsMask = 0;
 
-        // Enable output on the output bus (element 0)
-        var enable_output: u32 = 1;
-        _ = c.AudioUnitSetProperty(
-            driver.audio_unit,
-            c.kAudioOutputUnitProperty_EnableIO,
+        var output_desc: c.AudioComponentDescription = undefined;
+        output_desc.componentType = c.kAudioUnitType_Output;
+        output_desc.componentSubType = c.kAudioUnitSubType_DefaultOutput;
+        output_desc.componentManufacturer = c.kAudioUnitManufacturer_Apple;
+        output_desc.componentFlags = 0;
+        output_desc.componentFlagsMask = 0;
+
+        // Add nodes to graph
+        var input_node: c.AUNode = 0;
+        var output_node: c.AUNode = 0;
+
+        err = c.AUGraphAddNode(driver.audio_graph, &input_desc, &input_node);
+        if (err != 0) {
+            std.debug.print("Error adding input node: {d}\n", .{err});
+            return error.AUGraphNodeAddFailed;
+        }
+
+        err = c.AUGraphAddNode(driver.audio_graph, &output_desc, &output_node);
+        if (err != 0) {
+            std.debug.print("Error adding output node: {d}\n", .{err});
+            return error.AUGraphNodeAddFailed;
+        }
+
+        // Open the graph
+        err = c.AUGraphOpen(driver.audio_graph);
+        if (err != 0) {
+            std.debug.print("Error opening AUGraph: {d}\n", .{err});
+            return error.AUGraphOpenFailed;
+        }
+
+        // Get the Audio Units from the nodes
+        err = c.AUGraphNodeInfo(driver.audio_graph, input_node, null, &driver.input_unit);
+        if (err != 0) {
+            std.debug.print("Error getting input AU: {d}\n", .{err});
+            return error.AUGraphNodeInfoFailed;
+        }
+
+        err = c.AUGraphNodeInfo(driver.audio_graph, output_node, null, &driver.output_unit);
+        if (err != 0) {
+            std.debug.print("Error getting output AU: {d}\n", .{err});
+            return error.AUGraphNodeInfoFailed;
+        }
+
+        // Set the input device for the input AU
+        err = c.AudioUnitSetProperty(
+            driver.input_unit,
+            c.kAudioOutputUnitProperty_CurrentDevice,
             c.kAudioUnitScope_Output,
             0,
-            &enable_output,
-            @sizeOf(u32),
+            &driver.input_device_id,
+            @sizeOf(c.AudioDeviceID),
         );
+        if (err != 0) {
+            std.debug.print("Error setting input device: {d}\n", .{err});
+        }
 
-        // Set sample rate
-        const sample_rate: f64 = 44100.0;
-        driver.sample_rate = sample_rate;
+        // Set the output device for the output AU
+        err = c.AudioUnitSetProperty(
+            driver.output_unit,
+            c.kAudioOutputUnitProperty_CurrentDevice,
+            c.kAudioUnitScope_Output,
+            0,
+            &driver.output_device_id,
+            @sizeOf(c.AudioDeviceID),
+        );
+        if (err != 0) {
+            std.debug.print("Error setting output device: {d}\n", .{err});
+        }
+
+        // Set stream format for both units
         var stream_format: c.AudioStreamBasicDescription = undefined;
-        stream_format.mSampleRate = sample_rate;
+        stream_format.mSampleRate = driver.sample_rate;
         stream_format.mFormatID = c.kAudioFormatLinearPCM;
         stream_format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked;
         stream_format.mFramesPerPacket = 1;
@@ -266,57 +301,72 @@ pub const CoreAudioDriver = struct {
         stream_format.mBytesPerFrame = 4;
         stream_format.mBytesPerPacket = 4;
 
-        // For DefaultOutput unit, set format on Input scope (this is where we process audio)
         err = c.AudioUnitSetProperty(
-            driver.audio_unit,
+            driver.input_unit,
+            c.kAudioUnitProperty_StreamFormat,
+            c.kAudioUnitScope_Output,
+            0,
+            &stream_format,
+            @sizeOf(c.AudioStreamBasicDescription),
+        );
+        if (err != 0) {
+            std.debug.print("Error setting input format: {d}\n", .{err});
+        }
+
+        err = c.AudioUnitSetProperty(
+            driver.output_unit,
             c.kAudioUnitProperty_StreamFormat,
             c.kAudioUnitScope_Input,
             0,
             &stream_format,
             @sizeOf(c.AudioStreamBasicDescription),
         );
-
         if (err != 0) {
-            std.debug.print("Error setting stream format for input: {d}\n", .{err});
-            return error.AudioUnitStreamFormatFailed;
+            std.debug.print("Error setting output format: {d}\n", .{err});
         }
 
-        // Set the render callback on the input bus
+        // Connect input unit output to output unit input
+        err = c.AUGraphConnectNodeInput(driver.audio_graph, input_node, 0, output_node, 0);
+        if (err != 0) {
+            std.debug.print("Error connecting nodes: {d}\n", .{err});
+            return error.AUGraphConnectionFailed;
+        }
+
+        // Set the render callback on the output unit to apply effects
         var callback: c.AURenderCallbackStruct = undefined;
-        callback.inputProc = coreAudioCallback;
+        callback.inputProc = coreAudioGraphCallback;
         callback.inputProcRefCon = driver;
 
         err = c.AudioUnitSetProperty(
-            driver.audio_unit,
+            driver.output_unit,
             c.kAudioUnitProperty_SetRenderCallback,
             c.kAudioUnitScope_Input,
             0,
             &callback,
             @sizeOf(c.AURenderCallbackStruct),
         );
-
         if (err != 0) {
-            std.debug.print("Error setting render callback: {d}\n", .{err});
+            std.debug.print("Error setting output callback: {d}\n", .{err});
             return error.AudioUnitCallbackSetFailed;
         }
 
-        // Initialize the Audio Unit
-        err = c.AudioUnitInitialize(driver.audio_unit);
+        // Initialize the graph
+        err = c.AUGraphInitialize(driver.audio_graph);
         if (err != 0) {
-            std.debug.print("Error initializing Audio Unit: {d}\n", .{err});
-            return error.AudioUnitInitializationFailed;
+            std.debug.print("Error initializing AUGraph: {d}\n", .{err});
+            return error.AUGraphInitializeFailed;
         }
 
-        // Start the Audio Unit
-        err = c.AudioOutputUnitStart(driver.audio_unit);
+        // Start the graph
+        err = c.AUGraphStart(driver.audio_graph);
         if (err != 0) {
-            std.debug.print("Error starting Audio Unit: {d}\n", .{err});
-            return error.AudioUnitStartFailed;
+            std.debug.print("Error starting AUGraph: {d}\n", .{err});
+            return error.AUGraphStartFailed;
         }
 
         driver.is_running = true;
 
-        std.debug.print("✓ Real-time processing started via CoreAudio\n", .{});
+        std.debug.print("✓ Real-time processing started via CoreAudio (Audio Unit Graph)\n", .{});
         std.debug.print("Press Ctrl+C to stop...\n\n", .{});
 
         // Run until duration expires or Ctrl+C
@@ -333,34 +383,34 @@ pub const CoreAudioDriver = struct {
                 remaining_seconds -= 0.1;
             }
             driver.is_running = false;
-            _ = c.AudioOutputUnitStop(driver.audio_unit);
+            _ = c.AUGraphStop(driver.audio_graph);
         }
     }
 
     pub fn stopProcessing(self: *AudioDriver) void {
-        const driver: *CoreAudioDriver = @ptrCast(@alignCast(self.context));
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
         driver.is_running = false;
-        if (driver.audio_unit != null) {
-            _ = c.AudioOutputUnitStop(driver.audio_unit);
-            _ = c.AudioUnitUninitialize(driver.audio_unit);
-            _ = c.AudioComponentInstanceDispose(driver.audio_unit);
-            driver.audio_unit = null;
+        if (driver.audio_graph != null) {
+            _ = c.AUGraphStop(driver.audio_graph);
+            _ = c.AUGraphUninitialize(driver.audio_graph);
+            _ = c.DisposeAUGraph(driver.audio_graph);
+            driver.audio_graph = null;
         }
     }
 
     pub fn deinit(self: *AudioDriver) void {
-        const driver: *CoreAudioDriver = @ptrCast(@alignCast(self.context));
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
 
-        // Stop and dispose audio unit if still running
-        if (driver.audio_unit != null) {
-            _ = c.AudioOutputUnitStop(driver.audio_unit);
-            _ = c.AudioUnitUninitialize(driver.audio_unit);
-            _ = c.AudioComponentInstanceDispose(driver.audio_unit);
-            driver.audio_unit = null;
+        // Stop and dispose audio graph if still running
+        if (driver.audio_graph != null) {
+            _ = c.AUGraphStop(driver.audio_graph);
+            _ = c.AUGraphUninitialize(driver.audio_graph);
+            _ = c.DisposeAUGraph(driver.audio_graph);
+            driver.audio_graph = null;
         }
 
         // Free convolution state buffer
-        if (driver.conv_state != null and driver.conv_state_len > 0) {
+        if (driver.conv_state_len > 0) {
             const conv_state_slice = driver.conv_state[0..driver.conv_state_len];
             driver.allocator.free(conv_state_slice);
         }
@@ -369,7 +419,7 @@ pub const CoreAudioDriver = struct {
         g_driver_instance = null;
     }
 
-    fn coreAudioCallback(
+    fn coreAudioGraphCallback(
         in_ref_con: ?*anyopaque,
         io_action_flags: [*c]c.AudioUnitRenderActionFlags,
         in_time_stamp: [*c]const c.AudioTimeStamp,
@@ -377,9 +427,11 @@ pub const CoreAudioDriver = struct {
         in_number_frames: u32,
         io_data: [*c]c.AudioBufferList,
     ) callconv(.c) c.OSStatus {
+        _ = io_action_flags;
+        _ = in_time_stamp;
         _ = in_bus_number;
 
-        const driver: *CoreAudioDriver = @ptrCast(@alignCast(in_ref_con));
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
         if (driver.distortion == null or driver.convolver == null or io_data == null) {
             return 0;
@@ -391,40 +443,11 @@ pub const CoreAudioDriver = struct {
         }
 
         const audio_buffer = &buffer_list.*.mBuffers[0];
-        const out = @as([*]f32, @ptrCast(@alignCast(audio_buffer.mData)));
+        const audio = @as([*]f32, @ptrCast(@alignCast(audio_buffer.mData)));
 
-        // Try to pull input audio from the input bus
-        // Allocate a temporary buffer for input
-        var input_buffers: [1]c.AudioBuffer = undefined;
-        var input_data: [8192]f32 = undefined; // Enough for 256 samples at 32-bit
-
-        input_buffers[0].mNumberChannels = 1;
-        input_buffers[0].mDataByteSize = in_number_frames * @sizeOf(f32);
-        input_buffers[0].mData = @ptrCast(&input_data);
-
-        var input_buffer_list: c.AudioBufferList = undefined;
-        input_buffer_list.mNumberBuffers = 1;
-        input_buffer_list.mBuffers[0] = input_buffers[0];
-
-        // Render input from the input bus
-        const render_err = c.AudioUnitRender(
-            driver.audio_unit,
-            io_action_flags,
-            in_time_stamp,
-            1, // Input bus
-            in_number_frames,
-            &input_buffer_list,
-        );
-
-        // Use input if available, otherwise use silence
-        const input: [*]f32 = if (render_err == 0)
-            @as([*]f32, @ptrCast(&input_data))
-        else
-            out; // Fallback - will process silence
-
-        // Process each sample
+        // Process each sample - input is already in the buffer from the input unit
         for (0..in_number_frames) |i| {
-            var sample: f64 = @as(f64, input[i]);
+            var sample: f64 = @as(f64, audio[i]);
 
             // Apply distortion
             const driven = sample * driver.distortion.?.drive;
@@ -444,54 +467,29 @@ pub const CoreAudioDriver = struct {
             driver.conv_state_pos = (driver.conv_state_pos + 1) % driver.conv_state_len;
 
             // 100% wet output
-            out[i] = std.math.clamp(conv_out, -1.0, 1.0);
+            audio[i] = std.math.clamp(conv_out, -1.0, 1.0);
         }
 
         return 0;
     }
-
-    const vtable: AudioDriver.VTable = .{
-        .init = initVTable,
-        .list_devices = listDevicesVTable,
-        .start_processing = startProcessingVTable,
-        .stop_processing = stopProcessingVTable,
-        .deinit = deinitVTable,
-    };
-
-    fn initVTable(allocator: std.mem.Allocator) !*AudioDriver {
-        const driver = try allocator.create(AudioDriver);
-        driver.* = try CoreAudioDriver.init(allocator);
-        return driver;
-    }
-
-    fn listDevicesVTable(driver: *AudioDriver) void {
-        CoreAudioDriver.listDevices(driver);
-    }
-
-    fn startProcessingVTable(
-        driver: *AudioDriver,
-        input_device: i32,
-        output_device: i32,
-        buffer_size: usize,
-        duration: f64,
-        distortion: *anyopaque,
-        convolver: *anyopaque,
-    ) !void {
-        try CoreAudioDriver.startProcessing(driver, input_device, output_device, buffer_size, duration, distortion, convolver);
-    }
-
-    fn stopProcessingVTable(driver: *AudioDriver) void {
-        CoreAudioDriver.stopProcessing(driver);
-    }
-
-    fn deinitVTable(driver: *AudioDriver) void {
-        const actual_driver: *CoreAudioDriver = @ptrCast(@alignCast(driver.context));
-        if (actual_driver.is_running) {
-            if (actual_driver.audio_unit != null) {
-                _ = c.AudioOutputUnitStop(actual_driver.audio_unit);
-                _ = c.AudioComponentInstanceDispose(actual_driver.audio_unit);
-            }
-        }
-        actual_driver.allocator.destroy(actual_driver);
-    }
 };
+
+const listDevicesVTable = AudioDriver.VTable{
+    .init = initVTable,
+    .list_devices = CoreAudioGraphDriver.listDevices,
+    .start_processing = startProcessingVTable,
+    .stop_processing = CoreAudioGraphDriver.stopProcessing,
+    .deinit = CoreAudioGraphDriver.deinit,
+};
+
+fn initVTable(allocator: std.mem.Allocator) !*AudioDriver {
+    const driver_on_heap = try std.heap.page_allocator.create(AudioDriver);
+    driver_on_heap.* = try CoreAudioGraphDriver.init(allocator);
+    return driver_on_heap;
+}
+
+fn startProcessingVTable(self: *AudioDriver, input_device: i32, output_device: i32, buffer_size: usize, duration: f64, distortion: *anyopaque, convolver: *anyopaque) !void {
+    try CoreAudioGraphDriver.startProcessing(self, input_device, output_device, buffer_size, duration, distortion, convolver);
+}
+
+const vtable = listDevicesVTable;

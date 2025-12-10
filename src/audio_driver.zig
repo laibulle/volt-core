@@ -63,7 +63,7 @@ pub const AudioDriver = struct {
 pub fn selectDriver() type {
     const builtin = @import("builtin");
     if (comptime builtin.os.tag == .macos) {
-        return @import("drivers/coreaudio_driver.zig").CoreAudioDriver;
+        return @import("drivers/coreaudio_graph_driver.zig").CoreAudioGraphDriver;
     } else if (comptime builtin.os.tag == .linux) {
         return @import("drivers/portaudio_driver.zig").PortAudioDriver;
     } else {
