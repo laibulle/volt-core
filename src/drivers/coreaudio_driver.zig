@@ -18,6 +18,8 @@ pub const CoreAudioDriver = struct {
     conv_state: [*]f32 = undefined,
     conv_state_len: usize = 0,
     conv_state_pos: usize = 0,
+    phase: f64 = 0.0,
+    sample_rate: f64 = 44100.0,
 
     pub fn init(allocator: std.mem.Allocator) !AudioDriver {
         const driver = try allocator.create(CoreAudioDriver);
@@ -224,9 +226,10 @@ pub const CoreAudioDriver = struct {
             return error.AudioUnitInstanceCreationFailed;
         }
 
-        // Enable input
+        // Enable input on the input bus (element 1)
+        // Note: These may fail on default output unit - that's okay
         var enable_input: u32 = 1;
-        err = c.AudioUnitSetProperty(
+        _ = c.AudioUnitSetProperty(
             driver.audio_unit,
             c.kAudioOutputUnitProperty_EnableIO,
             c.kAudioUnitScope_Input,
@@ -235,13 +238,20 @@ pub const CoreAudioDriver = struct {
             @sizeOf(u32),
         );
 
-        if (err != 0) {
-            std.debug.print("Error enabling input: {d}\n", .{err});
-            // Continue anyway - not all AU configurations need explicit input enable
-        }
+        // Enable output on the output bus (element 0)
+        var enable_output: u32 = 1;
+        _ = c.AudioUnitSetProperty(
+            driver.audio_unit,
+            c.kAudioOutputUnitProperty_EnableIO,
+            c.kAudioUnitScope_Output,
+            0,
+            &enable_output,
+            @sizeOf(u32),
+        );
 
         // Set sample rate
         const sample_rate: f64 = 44100.0;
+        driver.sample_rate = sample_rate;
         var stream_format: c.AudioStreamBasicDescription = undefined;
         stream_format.mSampleRate = sample_rate;
         stream_format.mFormatID = c.kAudioFormatLinearPCM;
@@ -252,21 +262,22 @@ pub const CoreAudioDriver = struct {
         stream_format.mBytesPerFrame = 4;
         stream_format.mBytesPerPacket = 4;
 
+        // For DefaultOutput unit, set format on Input scope (this is where we process audio)
         err = c.AudioUnitSetProperty(
             driver.audio_unit,
             c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Output,
+            c.kAudioUnitScope_Input,
             0,
             &stream_format,
             @sizeOf(c.AudioStreamBasicDescription),
         );
 
         if (err != 0) {
-            std.debug.print("Error setting stream format for output: {d}\n", .{err});
+            std.debug.print("Error setting stream format for input: {d}\n", .{err});
             return error.AudioUnitStreamFormatFailed;
         }
 
-        // Set the render callback
+        // Set the render callback on the input bus
         var callback: c.AURenderCallbackStruct = undefined;
         callback.inputProc = coreAudioCallback;
         callback.inputProcRefCon = driver;
@@ -306,15 +317,18 @@ pub const CoreAudioDriver = struct {
 
         // Run until duration expires or Ctrl+C
         if (duration < 0) {
-            // Run indefinitely
-            var counter: u32 = 0;
-            while (driver.is_running and counter < 4_294_967_295) {
-                counter +|= 1;
+            // Run indefinitely - just yield to the OS
+            while (driver.is_running) {
+                // Small delay to avoid busy loop
+                var i: u64 = 0;
+                while (i < 10_000_000) : (i += 1) {}
             }
         } else {
             // Wait for duration
             var remaining_seconds = duration;
             while (remaining_seconds > 0 and driver.is_running) {
+                var i: u64 = 0;
+                while (i < 10_000_000) : (i += 1) {}
                 remaining_seconds -= 0.1;
             }
             driver.is_running = false;
@@ -338,6 +352,13 @@ pub const CoreAudioDriver = struct {
                 _ = c.AudioComponentInstanceDispose(driver.audio_unit);
             }
         }
+        
+        // Free convolution state buffer
+        if (driver.conv_state != null and driver.conv_state_len > 0) {
+            const conv_state_slice = driver.conv_state[0..driver.conv_state_len];
+            driver.allocator.free(conv_state_slice);
+        }
+        
         driver.allocator.destroy(driver);
         g_driver_instance = null;
     }
@@ -368,9 +389,19 @@ pub const CoreAudioDriver = struct {
         const audio_buffer = &buffer_list.*.mBuffers[0];
         const out = @as([*]f32, @ptrCast(@alignCast(audio_buffer.mData)));
 
+        // Generate a test tone at 440 Hz to verify audio output is working
+        const frequency: f64 = 440.0;
+        const two_pi = 2.0 * std.math.pi;
+        const phase_increment = frequency / driver.sample_rate;
+
         // Process each sample
         for (0..in_number_frames) |i| {
-            var sample = out[i];
+            // Generate test tone
+            var sample: f64 = @sin(driver.phase * two_pi) * 0.2;
+            driver.phase += phase_increment;
+            if (driver.phase >= 1.0) {
+                driver.phase -= 1.0;
+            }
 
             // Apply distortion
             const driven = sample * driver.distortion.?.drive;
@@ -386,7 +417,7 @@ pub const CoreAudioDriver = struct {
                 conv_out += driver.conv_state[idx] * ir_ptr[tap];
             }
 
-            driver.conv_state[driver.conv_state_pos] = sample;
+            driver.conv_state[driver.conv_state_pos] = @as(f32, @floatCast(sample));
             driver.conv_state_pos = (driver.conv_state_pos + 1) % driver.conv_state_len;
 
             // 100% wet output
