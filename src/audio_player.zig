@@ -38,13 +38,7 @@ fn audioCallback(
         }
     }
 
-    // Print debug info on first callback and periodically
-    if (context.current_position == frameCount or context.current_position % 88200 == 0) {
-        std.debug.print("[Callback] Frames: {d}, Position: {d}, Max: {d:.4}\n", .{ frameCount, context.current_position, max_sample });
-    }
-
     if (context.current_position >= context.sample_count * context.channel_count) {
-        std.debug.print("[Callback] Playback complete at position {d}\n", .{context.current_position});
         return c.paComplete;
     }
     return c.paContinue;

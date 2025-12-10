@@ -12,7 +12,7 @@ pub fn main() !void {
 
     // Load guitar sample
     const loader = volt_core.wav_loader.WAVLoader.init(allocator);
-    std.debug.print("Loading guitar sample: samples/ElectricGuitar1-Raw_105.wav\n", .{});
+    std.debug.print("Loading: samples/ElectricGuitar1-Raw_105.wav\n", .{});
 
     var audio_buffer = loader.loadFile("samples/ElectricGuitar1-Raw_105.wav") catch |err| {
         std.debug.print("Error loading file: {}\n", .{err});
@@ -26,48 +26,20 @@ pub fn main() !void {
         audio_buffer.channel_count,
     });
 
-    // Debug: check first and max samples
-    var max_val: f32 = 0.0;
-    var min_val: f32 = 0.0;
-    for (audio_buffer.samples) |sample| {
-        if (sample > max_val) max_val = sample;
-        if (sample < min_val) min_val = sample;
-    }
-    std.debug.print("[Debug] Sample range before distortion: [{d:.6}, {d:.6}]\n", .{ min_val, max_val });
-    std.debug.print("[Debug] First 5 samples: ", .{});
-    for (0..@min(5, audio_buffer.samples.len)) |i| {
-        std.debug.print("{d:.6} ", .{audio_buffer.samples[i]});
-    }
-    std.debug.print("\n", .{});
-
     // Apply distortion effect
     var distortion = volt_core.effects.Distortion{
-        .drive = 6.5, // Moderate-high distortion
-        .tone = 0.8, // Warm tone
+        .drive = 6.5,
+        .tone = 0.8,
     };
 
-    std.debug.print("\nApplying distortion (drive: {d:.1}, tone: {d:.1})...\n", .{ distortion.drive, distortion.tone });
+    std.debug.print("✓ Applying distortion (drive: {d:.1}, tone: {d:.1})\n", .{ distortion.drive, distortion.tone });
     distortion.processBuffer(&audio_buffer);
-
-    // Debug: check samples after distortion
-    max_val = 0.0;
-    min_val = 0.0;
-    for (audio_buffer.samples) |sample| {
-        if (sample > max_val) max_val = sample;
-        if (sample < min_val) min_val = sample;
-    }
-    std.debug.print("[Debug] Sample range after distortion: [{d:.6}, {d:.6}]\n", .{ min_val, max_val });
-    std.debug.print("[Debug] First 5 samples after: ", .{});
-    for (0..@min(5, audio_buffer.samples.len)) |i| {
-        std.debug.print("{d:.6} ", .{audio_buffer.samples[i]});
-    }
-    std.debug.print("\n", .{});
 
     // Play the processed audio
     var player = try volt_core.audio_player.AudioPlayer.init(allocator);
     defer player.deinit();
 
-    std.debug.print("Starting playback...\n\n", .{});
+    std.debug.print("✓ Starting playback...\n\n", .{});
     try player.playBuffer(
         audio_buffer.samples.ptr,
         audio_buffer.samples.len / audio_buffer.channel_count,
@@ -75,7 +47,8 @@ pub fn main() !void {
         audio_buffer.channel_count,
     );
 
-    std.debug.print("\n✓ Playback complete!\n", .{});
+    std.debug.print("✓ Playback complete!\n", .{});
+}
 }
 
 test "simple test" {
