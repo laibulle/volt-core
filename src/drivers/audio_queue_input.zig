@@ -4,15 +4,42 @@ const c = @cImport({
     @cInclude("AudioToolbox/AudioToolbox.h");
 });
 
-const BUFFER_COUNT = 3;
-const BUFFER_SIZE = 4096; // Samples per buffer
+const BUFFER_COUNT = 4;
+const BUFFER_SIZE = 2048; // Samples per buffer - reduced for lower latency
+
+// Helper function to get device sample rate
+fn getDeviceSampleRate(device_id: c.AudioDeviceID) f64 {
+    const kAudioDevicePropertyNominalSampleRate: u32 = 0x6e737274; // 'nsrt'
+    var sample_rate: f64 = 48000.0; // Default fallback
+    var size: u32 = @sizeOf(f64);
+
+    const err = c.AudioObjectGetPropertyData(
+        device_id,
+        &c.AudioObjectPropertyAddress{
+            .mSelector = kAudioDevicePropertyNominalSampleRate,
+            .mScope = c.kAudioObjectPropertyScopeGlobal,
+            .mElement = c.kAudioObjectPropertyElementMain,
+        },
+        0,
+        null,
+        &size,
+        @ptrCast(&sample_rate),
+    );
+
+    if (err != 0) {
+        std.debug.print("Warning: Could not get device sample rate, using 48kHz\n", .{});
+        return 48000.0;
+    }
+
+    return sample_rate;
+}
 
 // Helper function to get device UID string (required by Audio Queue)
 fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
     const kAudioDevicePropertyDeviceUID: u32 = 0x75696420; // 'uid '
     var uid: c.CFStringRef = null;
     var size: u32 = @sizeOf(c.CFStringRef);
-    
+
     const err = c.AudioObjectGetPropertyData(
         device_id,
         &c.AudioObjectPropertyAddress{
@@ -25,14 +52,15 @@ fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
         &size,
         @ptrCast(&uid),
     );
-    
+
     if (err != 0) {
         std.debug.print("Error getting device UID for 0x{x}: {}\n", .{ device_id, err });
         return null;
     }
-    
+
     return uid;
-}pub const AudioQueueInput = struct {
+}
+pub const AudioQueueInput = struct {
     queue: c.AudioQueueRef = null,
     allocator: std.mem.Allocator,
 
@@ -48,9 +76,16 @@ fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
             .allocator = allocator,
         };
 
-        // Create audio format for input (mono, 48kHz, float32)
+        // Query the actual device sample rate
+        const actual_sample_rate = getDeviceSampleRate(device_id);
+
+        // TEMPORARY: Force 44.1kHz to test if pitch issue is sample rate related
+        const use_sample_rate: f64 = 44100.0;
+        std.debug.print("🎵 Audio Queue INPUT: Requested={d}, Using={d} Hz (device 0x{x})\n", .{ actual_sample_rate, use_sample_rate, device_id });
+
+        // Create audio format for input (mono, device sample rate, float32)
         var format: c.AudioStreamBasicDescription = undefined;
-        format.mSampleRate = 48000.0;
+        format.mSampleRate = use_sample_rate;
         format.mFormatID = c.kAudioFormatLinearPCM;
         format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked;
         format.mBytesPerPacket = 4; // 32-bit float
@@ -77,6 +112,23 @@ fn getDeviceUID(device_id: c.AudioDeviceID) !?c.CFStringRef {
         if (err != 0) {
             std.debug.print("Error creating audio queue: {}\n", .{err});
             return error.AudioQueueCreationFailed;
+        }
+
+        // Verify the actual format Audio Queue is using
+        var actual_format: c.AudioStreamBasicDescription = undefined;
+        var format_size: u32 = @sizeOf(c.AudioStreamBasicDescription);
+        const kAudioQueueProperty_StreamDescription: u32 = 0x61717364; // 'aqsd'
+        err = c.AudioQueueGetProperty(
+            self.queue,
+            kAudioQueueProperty_StreamDescription,
+            &actual_format,
+            &format_size,
+        );
+        if (err == 0) {
+            std.debug.print("🔍 Audio Queue ACTUAL sample rate: {d} Hz (after creation)\n", .{actual_format.mSampleRate});
+            if (actual_format.mSampleRate != actual_sample_rate) {
+                std.debug.print("⚠️  WARNING: Sample rate mismatch! Requested {d}, got {d}\n", .{ actual_sample_rate, actual_format.mSampleRate });
+            }
         }
 
         // Set the specific input device (Scarlett instead of default Mac mic)

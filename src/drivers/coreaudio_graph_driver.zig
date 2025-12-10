@@ -334,7 +334,7 @@ pub const CoreAudioGraphDriver = struct {
             );
         }
 
-        std.debug.print("Device sample rate: {d:.0} Hz\n", .{device_sample_rate});
+        std.debug.print("🎵 Output device sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
 
         // Note: Format setting often fails on HALOutput units during active I/O.
         // CoreAudio will negotiate format automatically, so we just proceed.
