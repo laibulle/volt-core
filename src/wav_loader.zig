@@ -77,22 +77,56 @@ pub const WAVLoader = struct {
         const bytes_per_sample = bits_per_sample / 8;
         const sample_count = data_size / (channel_count * bytes_per_sample);
 
+        std.debug.print("[WAV Loader] Sample rate: {d}, Channels: {d}, Bits: {d}, Data size: {d}, Sample count: {d}\n", .{
+            sample_rate, channel_count, bits_per_sample, data_size, sample_count,
+        });
+
         var buffer = try audio.AudioBuffer.init(self.allocator, sample_count, channel_count, sample_rate);
 
         // Read audio data
         if (bits_per_sample == 16) {
             var sample_i: usize = 0;
             var sample_buf: [2]u8 = undefined;
+            var read_count: usize = 0;
 
             while (sample_i < sample_count * channel_count) {
-                const bytes_read = file.readAll(&sample_buf) catch break;
-                if (bytes_read == 0) break;
+                read_count = file.read(&sample_buf) catch break;
+                if (read_count < 2) break;
 
                 const int_sample = std.mem.readInt(i16, &sample_buf, .little);
                 const f_sample = @as(f32, @floatFromInt(int_sample)) / 32768.0;
                 buffer.samples[sample_i] = f_sample;
                 sample_i += 1;
             }
+            
+            std.debug.print("[WAV Loader] Read {d} 16-bit samples, expected {d}\n", .{ sample_i, sample_count * channel_count });
+        } else if (bits_per_sample == 24) {
+            var sample_i: usize = 0;
+            var sample_buf: [3]u8 = undefined;
+            var read_count: usize = 0;
+
+            while (sample_i < sample_count * channel_count) {
+                read_count = file.read(&sample_buf) catch break;
+                if (read_count < 3) break;
+
+                // Convert 24-bit to 32-bit signed integer
+                var int_sample: i32 = 0;
+                if (sample_buf[2] & 0x80 != 0) {
+                    // Negative number - sign extend
+                    int_sample = @as(i32, sample_buf[2]) << 24 | @as(i32, sample_buf[1]) << 16 | @as(i32, sample_buf[0]) << 8;
+                } else {
+                    // Positive number
+                    int_sample = @as(i32, sample_buf[2]) << 24 | @as(i32, sample_buf[1]) << 16 | @as(i32, sample_buf[0]) << 8;
+                }
+                int_sample = int_sample >> 8; // Shift back to get 24-bit value
+                const f_sample = @as(f32, @floatFromInt(int_sample)) / 8388608.0;
+                buffer.samples[sample_i] = f_sample;
+                sample_i += 1;
+            }
+            
+            std.debug.print("[WAV Loader] Read {d} 24-bit samples, expected {d}\n", .{ sample_i, sample_count * channel_count });
+        } else {
+            std.debug.print("[WAV Loader] Unsupported bits per sample: {d}\n", .{bits_per_sample});
         }
 
         return buffer;

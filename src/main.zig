@@ -26,6 +26,20 @@ pub fn main() !void {
         audio_buffer.channel_count,
     });
 
+    // Debug: check first and max samples
+    var max_val: f32 = 0.0;
+    var min_val: f32 = 0.0;
+    for (audio_buffer.samples) |sample| {
+        if (sample > max_val) max_val = sample;
+        if (sample < min_val) min_val = sample;
+    }
+    std.debug.print("[Debug] Sample range before distortion: [{d:.6}, {d:.6}]\n", .{ min_val, max_val });
+    std.debug.print("[Debug] First 5 samples: ", .{});
+    for (0..@min(5, audio_buffer.samples.len)) |i| {
+        std.debug.print("{d:.6} ", .{audio_buffer.samples[i]});
+    }
+    std.debug.print("\n", .{});
+
     // Apply distortion effect
     var distortion = volt_core.effects.Distortion{
         .drive = 2.5, // Moderate-high distortion
@@ -34,6 +48,20 @@ pub fn main() !void {
 
     std.debug.print("\nApplying distortion (drive: {d:.1}, tone: {d:.1})...\n", .{ distortion.drive, distortion.tone });
     distortion.processBuffer(&audio_buffer);
+
+    // Debug: check samples after distortion
+    max_val = 0.0;
+    min_val = 0.0;
+    for (audio_buffer.samples) |sample| {
+        if (sample > max_val) max_val = sample;
+        if (sample < min_val) min_val = sample;
+    }
+    std.debug.print("[Debug] Sample range after distortion: [{d:.6}, {d:.6}]\n", .{ min_val, max_val });
+    std.debug.print("[Debug] First 5 samples after: ", .{});
+    for (0..@min(5, audio_buffer.samples.len)) |i| {
+        std.debug.print("{d:.6} ", .{audio_buffer.samples[i]});
+    }
+    std.debug.print("\n", .{});
 
     // Play the processed audio
     var player = try volt_core.audio_player.AudioPlayer.init(allocator);
