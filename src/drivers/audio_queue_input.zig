@@ -4,7 +4,8 @@ const c = @cImport({
     @cInclude("AudioToolbox/AudioToolbox.h");
 });
 
-const BUFFER_COUNT = 32; // Increased for 32-frame buffers to prevent underruns
+const AUDIO_QUEUE_BUFFER_COUNT = 4; // Number of Audio Queue buffers (affects OS latency)
+const RING_BUFFER_SIZE_MS = 50; // Ring buffer size in milliseconds (affects stability vs latency)
 const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
 
 // Helper function to get device buffer size (frames per I/O cycle)
@@ -110,10 +111,13 @@ pub const AudioQueueInput = struct {
 
         std.debug.print("🎵 Audio Queue INPUT: buffer={d} frames, device reports {d:.0} Hz, using {d:.0} Hz (device 0x{x})\n", .{ device_buffer_size, device_sample_rate, use_sample_rate, device_id });
 
-        // Allocate ring buffer dynamically
-        const ring_buffer_size = device_buffer_size * BUFFER_COUNT;
+        // Calculate ring buffer size based on desired latency in milliseconds
+        const samples_per_ms = @as(u32, @intFromFloat(use_sample_rate / 1000.0));
+        const ring_buffer_size = samples_per_ms * RING_BUFFER_SIZE_MS;
         const input_buffer = try allocator.alloc(f32, ring_buffer_size);
         @memset(input_buffer, 0.0);
+
+        std.debug.print("🔧 Ring buffer: {d} samples ({d}ms at {d:.0}Hz)\n", .{ ring_buffer_size, RING_BUFFER_SIZE_MS, use_sample_rate });
 
         var self = Self{
             .allocator = allocator,
@@ -189,8 +193,8 @@ pub const AudioQueueInput = struct {
             }
         }
 
-        // Allocate and enqueue buffers using device buffer size
-        for (0..BUFFER_COUNT) |_| {
+        // Allocate and enqueue Audio Queue buffers (independent of ring buffer size)
+        for (0..AUDIO_QUEUE_BUFFER_COUNT) |_| {
             var buffer: c.AudioQueueBufferRef = null;
             err = c.AudioQueueAllocateBuffer(self.queue, device_buffer_size * @sizeOf(f32), &buffer);
             if (err != 0) {
