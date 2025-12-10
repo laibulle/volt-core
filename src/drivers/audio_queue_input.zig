@@ -83,8 +83,8 @@ pub const AudioQueueInput = struct {
     }
 
     pub fn getSample(self: *Self) ?f32 {
-        const read_idx = self.read_pos.load(.monotonic);
-        const write_idx = self.write_pos.load(.monotonic);
+        const read_idx = self.read_pos.load(.seq_cst);
+        const write_idx = self.write_pos.load(.seq_cst);
 
         if (read_idx == write_idx) {
             return null; // No data available
@@ -92,14 +92,15 @@ pub const AudioQueueInput = struct {
 
         const idx = read_idx % self.input_buffer.len;
         const sample = self.input_buffer[idx];
-        self.read_pos.store((read_idx + 1) % self.input_buffer.len, .monotonic);
+        self.read_pos.store(read_idx + 1, .seq_cst);
         return sample;
     }
 
     pub fn writeSample(self: *Self, sample: f32) void {
-        const idx = self.write_pos.load(.monotonic) % self.input_buffer.len;
+        const write_idx = self.write_pos.load(.seq_cst);
+        const idx = write_idx % self.input_buffer.len;
         self.input_buffer[idx] = sample;
-        self.write_pos.store((idx + 1) % self.input_buffer.len, .monotonic);
+        self.write_pos.store(write_idx + 1, .seq_cst);
     }
 
     pub fn deinit(self: *Self) void {
@@ -108,6 +109,12 @@ pub const AudioQueueInput = struct {
             _ = c.AudioQueueDispose(self.queue, @as(c.Boolean, 1));
         }
         g_input_instance = null;
+    }
+
+    /// Update the global instance pointer to point to this instance
+    /// MUST be called after copying AudioQueueInput to a new location (e.g., heap allocation)
+    pub fn updateGlobalInstance(self: *Self) void {
+        g_input_instance = self;
     }
 };
 
@@ -122,12 +129,27 @@ fn audioQueueInputCallback(
     _: [*c]const c.AudioStreamPacketDescription,
 ) callconv(.c) void {
     if (g_input_instance) |self| {
+        // Debug: Print when callback is first invoked
+        const current_count = self.samples_captured.load(.monotonic);
+        if (current_count == 0) {
+            std.debug.print("✓ Audio Queue input callback started (receiving {} packets)\n", .{inNumberPackets});
+        }
+
         // Extract samples from the buffer
         if (buffer.*.mAudioData) |data| {
             const samples = @as([*]f32, @ptrCast(@alignCast(data)))[0..inNumberPackets];
+            var non_zero_count: usize = 0;
             for (samples) |sample| {
                 self.writeSample(sample);
-                self.samples_captured.store(self.samples_captured.load(.monotonic) + 1, .monotonic);
+                self.samples_captured.store(current_count + 1, .monotonic);
+                if (sample != 0.0 and (sample > 0.01 or sample < -0.01)) {
+                    non_zero_count += 1;
+                }
+            }
+
+            // Debug: Show if we're getting actual audio signal
+            if (current_count < 50000 and non_zero_count > 100) {
+                std.debug.print("✓ DETECTED AUDIO INPUT! {}/{} samples non-zero\n", .{ non_zero_count, inNumberPackets });
             }
         }
 

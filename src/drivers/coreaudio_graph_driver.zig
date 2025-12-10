@@ -379,6 +379,11 @@ pub const CoreAudioGraphDriver = struct {
             const queue_ptr = try driver.allocator.create(AudioQueueInput);
             queue_ptr.* = input_queue;
             driver.input_queue = queue_ptr;
+
+            // CRITICAL: Update global instance to point to heap-allocated copy
+            // The Audio Queue callback uses g_input_instance which was set in init()
+            // to point to the stack-allocated self, but we need it to point to the heap copy
+            queue_ptr.updateGlobalInstance();
         } else |init_err| {
             std.debug.print("Warning: Could not initialize input queue: {}\n", .{init_err});
         }
@@ -564,20 +569,25 @@ pub const CoreAudioGraphDriver = struct {
 
         if (render_err != 0) {
             // AudioUnitRender cannot be used to pull input on output callback
-            // Generate 220Hz test tone
+            // Generate 220Hz test tone or use input from queue
             const frequency = 220.0;
             const sample_rate = 48000.0;
+
+            var input_sample_count: u32 = 0;
+            var test_tone_count: u32 = 0;
 
             for (0..in_number_frames) |i| {
                 if (driver.input_queue) |queue| {
                     if (queue.getSample()) |sample| {
                         input_buffer[i] = sample;
+                        input_sample_count += 1;
                     } else {
                         // No input available - generate test tone
                         const t = @as(f64, @floatFromInt(driver.conv_state_pos + i));
                         const phase = @mod(t * frequency / sample_rate, 1.0);
                         const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
                         input_buffer[i] = sample_test;
+                        test_tone_count += 1;
                     }
                 } else {
                     // No input queue - generate test tone
@@ -587,6 +597,16 @@ pub const CoreAudioGraphDriver = struct {
                     input_buffer[i] = sample_test;
                 }
             }
+
+            // Debug: Show if we're getting real input
+            if (driver.conv_state_pos < 5000 and (driver.conv_state_pos / in_number_frames) % 10 == 0) {
+                if (input_sample_count > 0) {
+                    std.debug.print("✓ Got {}/{} input samples - hearing your guitar!\n", .{ input_sample_count, in_number_frames });
+                } else if (test_tone_count > 0) {
+                    std.debug.print("⚠ No input - using test tone\n", .{});
+                }
+            }
+
             driver.conv_state_pos += in_number_frames;
         }
 
