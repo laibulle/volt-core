@@ -16,6 +16,9 @@ pub const RealtimeContext = struct {
     conv_state_len: usize,
     conv_state_pos: usize = 0,
 
+    // For debug logging
+    current_position: usize = 0,
+
     allocator: std.mem.Allocator,
 };
 
@@ -35,9 +38,15 @@ fn realtimeCallback(
     const in = @as([*]const f32, @ptrCast(@alignCast(input)));
     const out = @as([*]f32, @ptrCast(@alignCast(output)));
 
+    var max_input: f32 = 0.0;
+    var max_output: f32 = 0.0;
+
     // Process each sample in real-time
     for (0..frameCount) |i| {
         var sample = in[i];
+
+        if (sample > max_input) max_input = sample;
+        if (sample < -max_input) max_input = -sample;
 
         // Apply distortion
         const drive = context.distortion.drive;
@@ -65,10 +74,19 @@ fn realtimeCallback(
         context.conv_state[context.conv_state_pos] = sample;
         context.conv_state_pos = (context.conv_state_pos + 1) % context.conv_state_len;
 
-        // Mix direct + convolved (for smoothness)
-        const mix = 0.7 * sample + 0.3 * conv_out;
-        out[i] = std.math.clamp(mix, -1.0, 1.0);
+        // Use only the convolved (wet) output - 100% cabinet simulation
+        const final = std.math.clamp(conv_out, -1.0, 1.0);
+        out[i] = final;
+
+        if (final > max_output) max_output = final;
+        if (final < -max_output) max_output = -final;
     }
+
+    // Log periodically (every 44100 samples = 1 second at 44.1kHz)
+    if (context.current_position % 44100 < frameCount) {
+        std.debug.print("[Audio] Input Max: {d:.4}, Output Max: {d:.4}, Drive: {d:.1}\n", .{ max_input, max_output, context.distortion.drive });
+    }
+    context.current_position += frameCount;
 
     return c.paContinue;
 }
