@@ -86,13 +86,25 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link PortAudio for real-time audio playback
-    exe.linkSystemLibrary("portaudio");
-    exe.linkLibC();
+    // Link platform-specific audio frameworks
+    if (target.result.os.tag == .macos) {
+        // macOS: Link both CoreAudio (native) and PortAudio (fallback)
+        exe.linkFramework("CoreAudio");
+        exe.linkFramework("AudioToolbox");
+        exe.linkFramework("Foundation");
+        exe.linkSystemLibrary("portaudio");
+        exe.linkLibC();
+        exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
+        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });
+    } else if (target.result.os.tag == .linux) {
+        // Linux: Link PortAudio
+        exe.linkSystemLibrary("portaudio");
+        exe.linkLibC();
+        exe.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
+        exe.addIncludePath(.{ .cwd_relative = "/usr/include" });
+    }
 
-    // Add homebrew library path for macOS
-    exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
-    exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });
+    exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default

@@ -1,8 +1,5 @@
 const std = @import("std");
 const volt_core = @import("volt_core");
-const c = @cImport({
-    @cInclude("portaudio.h");
-});
 
 pub fn main() !void {
     // Setup allocator
@@ -52,7 +49,7 @@ pub fn main() !void {
             std.debug.print("Usage: volt_core [options]\n", .{});
             std.debug.print("Options:\n", .{});
             std.debug.print("  --list-devices, -ld               List available audio devices\n", .{});
-            std.debug.print("  --realtime, -rt                   Use ASIO input (real-time guitar input)\n", .{});
+            std.debug.print("  --realtime, -rt                   Use real-time input (guitar input)\n", .{});
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
             std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
@@ -65,10 +62,13 @@ pub fn main() !void {
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
 
+    // Select and initialize audio driver based on platform
+    const SelectedDriver = volt_core.audio_driver.selectDriver();
+    var driver = try SelectedDriver.init(allocator);
+    defer driver.deinit();
+
     if (list_devices) {
-        var processor = try volt_core.realtime_processor.RealtimeProcessor.init(allocator);
-        defer processor.deinit();
-        processor.listDevices();
+        driver.listDevices();
         return;
     }
 
@@ -94,34 +94,13 @@ pub fn main() !void {
         var convolver = try volt_core.effects.Convolver.init(allocator, ir_buffer);
         defer convolver.deinit();
 
-        // Start real-time processing
-        var processor = try volt_core.realtime_processor.RealtimeProcessor.init(allocator);
-        defer processor.deinit();
-
-        // Determine devices to use
-        var selected_input: c.PaDeviceIndex = undefined;
-        var selected_output: c.PaDeviceIndex = undefined;
-
-        if (input_device >= 0 and output_device >= 0) {
-            // User provided specific devices
-            selected_input = @as(c.PaDeviceIndex, @intCast(input_device));
-            selected_output = @as(c.PaDeviceIndex, @intCast(output_device));
-            std.debug.print("✓ Using specified devices\n", .{});
-        } else {
-            // List devices and let user choose (or use defaults)
-            processor.listDevices();
-            const devices = try processor.promptDeviceSelection();
-            selected_input = devices.input_device;
-            selected_output = devices.output_device;
-        }
-
-        std.debug.print("\nStarting real-time processing for {d:.1} seconds...\n", .{duration});
+        std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
         std.debug.print("(Cabinet: Celestion Vintage 30)\n", .{});
         std.debug.print("(Buffer size: {d} frames)\n\n", .{buffer_size});
 
-        try processor.startProcessing(&distortion, &convolver, 44100, duration, selected_input, selected_output, buffer_size);
+        try driver.startProcessing(input_device, output_device, buffer_size, duration, &distortion, &convolver);
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);
