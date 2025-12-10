@@ -4,7 +4,7 @@ const c = @cImport({
     @cInclude("AudioToolbox/AudioToolbox.h");
 });
 
-const BUFFER_COUNT = 16; // Increased for 32-frame buffers to prevent underruns
+const BUFFER_COUNT = 32; // Increased for 32-frame buffers to prevent underruns
 const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
 
 // Helper function to get device buffer size (frames per I/O cycle)
