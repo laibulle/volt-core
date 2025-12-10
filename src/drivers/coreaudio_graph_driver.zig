@@ -339,6 +339,23 @@ pub const CoreAudioGraphDriver = struct {
                 std.debug.print("✓ Changed output device sample rate to {d:.0} Hz\n", .{target_sample_rate});
                 driver.sample_rate = target_sample_rate;
                 device_sample_rate = target_sample_rate;
+
+                // Verify the change took effect immediately
+                var verify_rate: f64 = 0;
+                sample_rate_size = @sizeOf(f64);
+                _ = c.AudioObjectGetPropertyData(
+                    driver.output_device_id,
+                    &prop_address,
+                    0,
+                    null,
+                    &sample_rate_size,
+                    &verify_rate,
+                );
+                if (verify_rate != target_sample_rate) {
+                    std.debug.print("⚠️  Device reports {d:.0} Hz after setting {d:.0} Hz\n", .{ verify_rate, target_sample_rate });
+                } else {
+                    std.debug.print("✓ Device confirmed at {d:.0} Hz\n", .{verify_rate});
+                }
             }
         } else {
             driver.sample_rate = device_sample_rate;
@@ -375,14 +392,28 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("Warning: disabling input IO returned: {d}\n", .{err});
         }
 
-        // Set device buffer size to 32 frames for low latency
+        // Force device buffer size to match desired latency
         const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
         var desired_buffer_size: u32 = 32;
+        var buffer_size_size: u32 = @sizeOf(u32);
         if (driver.output_device_id != 0) {
             prop_address.mSelector = kAudioDevicePropertyBufferFrameSize;
             prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
             prop_address.mElement = 0;
 
+            // First get current size
+            var current_buffer_size: u32 = 0;
+            _ = c.AudioObjectGetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                &buffer_size_size,
+                &current_buffer_size,
+            );
+            std.debug.print("🔧 Device buffer size (before): {d} frames at {d:.0} Hz\n", .{ current_buffer_size, driver.sample_rate });
+
+            // Force to desired size
             err = c.AudioObjectSetPropertyData(
                 driver.output_device_id,
                 &prop_address,
@@ -392,9 +423,24 @@ pub const CoreAudioGraphDriver = struct {
                 &desired_buffer_size,
             );
             if (err != 0) {
-                std.debug.print("⚠️  Warning: Could not set output device buffer size to {d}: error {d}\n", .{ desired_buffer_size, err });
+                std.debug.print("⚠️  Warning: Could not set buffer size to {d}: error {d}\n", .{ desired_buffer_size, err });
+            }
+
+            // Verify it took
+            var actual_buffer_size: u32 = 0;
+            _ = c.AudioObjectGetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                &buffer_size_size,
+                &actual_buffer_size,
+            );
+            if (actual_buffer_size != desired_buffer_size) {
+                std.debug.print("⚠️  Device refused buffer size {d}, using {d} instead\n", .{ desired_buffer_size, actual_buffer_size });
+                std.debug.print("⚠️  Note: High sample rates (>48kHz) may have pitch/latency issues due to buffer size constraints\n", .{});
             } else {
-                std.debug.print("✓ Set output device buffer size to {d} frames\n", .{desired_buffer_size});
+                std.debug.print("✓ Device buffer size set to {d} frames\n", .{actual_buffer_size});
             }
         }
 
@@ -434,7 +480,7 @@ pub const CoreAudioGraphDriver = struct {
                 }
             }
 
-            // Now set buffer size
+            // Force input buffer size to match output
             prop_address.mSelector = kAudioDevicePropertyBufferFrameSize;
             err = c.AudioObjectSetPropertyData(
                 driver.input_device_id,
@@ -444,10 +490,21 @@ pub const CoreAudioGraphDriver = struct {
                 @sizeOf(u32),
                 &desired_buffer_size,
             );
-            if (err != 0) {
-                std.debug.print("⚠️  Warning: Could not set input device buffer size to {d}: error {d}\n", .{ desired_buffer_size, err });
+            
+            // Verify
+            var input_buffer_size: u32 = 0;
+            _ = c.AudioObjectGetPropertyData(
+                driver.input_device_id,
+                &prop_address,
+                0,
+                null,
+                &buffer_size_size,
+                &input_buffer_size,
+            );
+            if (input_buffer_size != desired_buffer_size) {
+                std.debug.print("⚠️  Input device using {d} frames instead of {d}\n", .{ input_buffer_size, desired_buffer_size });
             } else {
-                std.debug.print("✓ Set input device buffer size to {d} frames\n", .{desired_buffer_size});
+                std.debug.print("✓ Input device buffer size: {d} frames\n", .{input_buffer_size});
             }
         }
 
@@ -474,85 +531,8 @@ pub const CoreAudioGraphDriver = struct {
             }
         }
 
-        // Set Audio Unit stream format to match device
-        var stream_format: c.AudioStreamBasicDescription = undefined;
-        stream_format.mSampleRate = driver.sample_rate;
-        stream_format.mFormatID = c.kAudioFormatLinearPCM;
-        stream_format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked | c.kAudioFormatFlagIsNonInterleaved;
-        stream_format.mBytesPerPacket = 4 * output_channels;
-        stream_format.mFramesPerPacket = 1;
-        stream_format.mBytesPerFrame = 4 * output_channels;
-        stream_format.mChannelsPerFrame = output_channels;
-        stream_format.mBitsPerChannel = 32;
-        stream_format.mReserved = 0;
-
-        // Set format on output scope (what we write to)
-        err = c.AudioUnitSetProperty(
-            driver.input_unit,
-            c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Output,
-            0,
-            &stream_format,
-            @sizeOf(c.AudioStreamBasicDescription),
-        );
-        if (err != 0) {
-            std.debug.print("⚠️  Warning: Could not set output stream format: error {d}\n", .{err});
-        } else {
-            std.debug.print("✓ Set Audio Unit stream format to {d:.0} Hz\n", .{driver.sample_rate});
-        }
-
-        // Query what format the Audio Unit actually ended up using
-        var actual_format: c.AudioStreamBasicDescription = undefined;
-        var format_size: u32 = @sizeOf(c.AudioStreamBasicDescription);
-        err = c.AudioUnitGetProperty(
-            driver.input_unit,
-            c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Output,
-            0,
-            &actual_format,
-            &format_size,
-        );
-        if (err == 0) {
-            std.debug.print("🔍 Audio Unit ACTUAL output format: {d:.0} Hz, {d} channels\n", .{ actual_format.mSampleRate, actual_format.mChannelsPerFrame });
-            if (actual_format.mSampleRate != driver.sample_rate) {
-                std.debug.print("⚠️  CRITICAL: Sample rate mismatch! Requested {d:.0}, got {d:.0}\n", .{ driver.sample_rate, actual_format.mSampleRate });
-                std.debug.print("⚠️  Audio Unit rejected our sample rate. Forcing device and retrying...\n", .{});
-
-                // Force device to the rate we want
-                const force_rate: f64 = driver.sample_rate;
-                var force_prop_address: c.AudioObjectPropertyAddress = undefined;
-                force_prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
-                force_prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
-                force_prop_address.mElement = 0;
-
-                _ = c.AudioObjectSetPropertyData(
-                    driver.output_device_id,
-                    &force_prop_address,
-                    0,
-                    null,
-                    @sizeOf(f64),
-                    @ptrCast(&force_rate),
-                );
-
-                // Try setting Audio Unit format again
-                stream_format.mSampleRate = driver.sample_rate;
-                const retry_err = c.AudioUnitSetProperty(
-                    driver.input_unit,
-                    c.kAudioUnitProperty_StreamFormat,
-                    c.kAudioUnitScope_Output,
-                    0,
-                    &stream_format,
-                    @sizeOf(c.AudioStreamBasicDescription),
-                );
-
-                if (retry_err == 0) {
-                    std.debug.print("✓ Successfully forced Audio Unit to {d:.0} Hz on retry\n", .{driver.sample_rate});
-                } else {
-                    std.debug.print("⚠️  Still failed (error {d}). Device may not support this rate.\n", .{retry_err});
-                    driver.sample_rate = actual_format.mSampleRate;
-                }
-            }
-        }
+        // DON'T try to set Audio Unit stream format - HAL Output picks it up from device automatically
+        // Format verification happens AFTER AudioUnitInitialize() below
 
         // Set the render callback on the OUTPUT bus to capture and process audio
         var callback: c.AURenderCallbackStruct = undefined;
@@ -577,6 +557,52 @@ pub const CoreAudioGraphDriver = struct {
         if (err != 0) {
             std.debug.print("Error initializing audio unit: {d}\n", .{err});
             return error.AudioUnitInitializeFailed;
+        }
+
+        // NOW query what format the Audio Unit chose (it locks in during initialization)
+        var actual_format: c.AudioStreamBasicDescription = undefined;
+        var format_size: u32 = @sizeOf(c.AudioStreamBasicDescription);
+        err = c.AudioUnitGetProperty(
+            driver.input_unit,
+            c.kAudioUnitProperty_StreamFormat,
+            c.kAudioUnitScope_Output,
+            0,
+            &actual_format,
+            &format_size,
+        );
+        if (err == 0) {
+            std.debug.print("🔍 Audio Unit initialized with: {d:.0} Hz, {d} channels\n", .{ actual_format.mSampleRate, actual_format.mChannelsPerFrame });
+            if (actual_format.mSampleRate != driver.sample_rate) {
+                std.debug.print("⚠️  CRITICAL: Sample rate mismatch! Wanted {d:.0}, got {d:.0}\n", .{ driver.sample_rate, actual_format.mSampleRate });
+                std.debug.print("⚠️  This will cause pitch/crash issues. Forcing devices to match...\n", .{});
+
+                // Update driver to use Audio Unit's rate
+                driver.sample_rate = actual_format.mSampleRate;
+
+                // Force both devices to match
+                prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+                _ = c.AudioObjectSetPropertyData(
+                    driver.output_device_id,
+                    &prop_address,
+                    0,
+                    null,
+                    @sizeOf(f64),
+                    @ptrCast(&driver.sample_rate),
+                );
+                if (driver.input_device_id != 0) {
+                    _ = c.AudioObjectSetPropertyData(
+                        driver.input_device_id,
+                        &prop_address,
+                        0,
+                        null,
+                        @sizeOf(f64),
+                        @ptrCast(&driver.sample_rate),
+                    );
+                }
+                std.debug.print("✓ Forced all devices to {d:.0} Hz to match Audio Unit\n", .{driver.sample_rate});
+            } else {
+                std.debug.print("✓ All components synchronized at {d:.0} Hz\n", .{driver.sample_rate});
+            }
         }
 
         // Start rendering
