@@ -337,6 +337,26 @@ pub const CoreAudioGraphDriver = struct {
 
         std.debug.print("🎵 Output device sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
 
+        // Force output device to 44.1kHz to match Audio Queue
+        const target_sample_rate: f64 = 44100.0;
+        if (driver.output_device_id != 0 and device_sample_rate != target_sample_rate) {
+            prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+            err = c.AudioObjectSetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                @sizeOf(f64),
+                @ptrCast(&target_sample_rate),
+            );
+            if (err != 0) {
+                std.debug.print("⚠️  Warning: Could not set output sample rate to {d}: error {d}\n", .{ target_sample_rate, err });
+            } else {
+                std.debug.print("✓ Set output device sample rate to {d:.0} Hz\n", .{target_sample_rate});
+                device_sample_rate = target_sample_rate;
+            }
+        }
+
         // Set device buffer size to 32 frames for low latency
         const kAudioDevicePropertyBufferFrameSize: u32 = 0x6673697a; // 'fsiz'
         var desired_buffer_size: u32 = 32;
@@ -362,6 +382,36 @@ pub const CoreAudioGraphDriver = struct {
 
         // Also set input device buffer size
         if (driver.input_device_id != 0) {
+            // Force input device sample rate to 44.1kHz FIRST
+            var input_sample_rate: f64 = 0.0;
+            _ = c.AudioObjectGetPropertyData(
+                driver.input_device_id,
+                &prop_address,
+                0,
+                null,
+                &sample_rate_size,
+                &input_sample_rate,
+            );
+            
+            if (input_sample_rate != target_sample_rate) {
+                prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+                err = c.AudioObjectSetPropertyData(
+                    driver.input_device_id,
+                    &prop_address,
+                    0,
+                    null,
+                    @sizeOf(f64),
+                    @ptrCast(&target_sample_rate),
+                );
+                if (err != 0) {
+                    std.debug.print("⚠️  Warning: Could not set input sample rate to {d}: error {d}\n", .{ target_sample_rate, err });
+                } else {
+                    std.debug.print("✓ Set input device sample rate to {d:.0} Hz\n", .{target_sample_rate});
+                }
+            }
+            
+            // Now set buffer size
+            prop_address.mSelector = kAudioDevicePropertyBufferFrameSize;
             err = c.AudioObjectSetPropertyData(
                 driver.input_device_id,
                 &prop_address,
