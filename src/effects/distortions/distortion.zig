@@ -31,8 +31,52 @@ pub const distortion_descriptor: ports.EffectDescriptor = .{
 /// Distortion effect processor
 /// Applies soft-clipping distortion with tone shaping
 pub const Distortion = struct {
-    drive: f32 = 1.0, // distortion amount (gain boost)
-    tone: f32 = 0.5, // tone shaping (0-1), lower = more bass, higher = more treble
+    drive: f32,
+    tone: f32,
+
+    /// Initialize distortion with default parameters
+    pub fn init() Distortion {
+        return .{
+            .drive = distortion_descriptor.available_parameters[0].default_value,
+            .tone = distortion_descriptor.available_parameters[1].default_value,
+        };
+    }
+
+    /// Initialize distortion with custom parameters
+    pub fn initWithParams(params: []const ports.Parameter) Distortion {
+        var self = Distortion{
+            .drive = distortion_descriptor.available_parameters[0].default_value,
+            .tone = distortion_descriptor.available_parameters[1].default_value,
+        };
+
+        for (params) |param| {
+            _ = self.setParameter(param.name, param.value);
+        }
+
+        return self;
+    }
+
+    /// Set a parameter value by name
+    pub fn setParameter(self: *Distortion, name: []const u8, value: f32) bool {
+        if (std.mem.eql(u8, name, "drive")) {
+            self.drive = distortion_descriptor.available_parameters[0].clamp(value);
+            return true;
+        } else if (std.mem.eql(u8, name, "tone")) {
+            self.tone = distortion_descriptor.available_parameters[1].clamp(value);
+            return true;
+        }
+        return false;
+    }
+
+    /// Get a parameter value by name
+    pub fn getParameter(self: *const Distortion, name: []const u8) ?f32 {
+        if (std.mem.eql(u8, name, "drive")) {
+            return self.drive;
+        } else if (std.mem.eql(u8, name, "tone")) {
+            return self.tone;
+        }
+        return null;
+    }
 
     /// Process a single sample through the distortion effect
     pub fn process(self: *const Distortion, input: f32) f32 {

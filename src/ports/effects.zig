@@ -8,6 +8,12 @@ pub const ParameterType = enum {
     enum_type,
 };
 
+/// Generic parameter with name and value
+pub const Parameter = struct {
+    name: []const u8,
+    value: f32,
+};
+
 /// Available parameter descriptor
 pub const ParameterDescriptor = struct {
     name: []const u8,
@@ -16,6 +22,18 @@ pub const ParameterDescriptor = struct {
     min_value: f32 = 0.0,
     max_value: f32 = 1.0,
     description: []const u8 = "",
+
+    /// Check if a value is within the valid range
+    pub fn isValid(self: *const ParameterDescriptor, value: f32) bool {
+        return value >= self.min_value and value <= self.max_value;
+    }
+
+    /// Clamp a value to the valid range
+    pub fn clamp(self: *const ParameterDescriptor, value: f32) f32 {
+        if (value < self.min_value) return self.min_value;
+        if (value > self.max_value) return self.max_value;
+        return value;
+    }
 };
 
 /// Effect metadata descriptor
