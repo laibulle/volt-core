@@ -5,7 +5,7 @@ const c = @cImport({
 });
 
 const AUDIO_QUEUE_BUFFER_COUNT = 4; // Number of Audio Queue buffers (affects OS latency)
-const RING_BUFFER_SIZE_MS = 50; // Ring buffer size in milliseconds (affects stability vs latency)
+const RING_BUFFER_SIZE_MS = 32; // Ring buffer size in milliseconds (affects stability vs latency)
 const DEFAULT_BUFFER_SIZE = 512; // Fallback if we can't query device
 
 // Helper function to get device buffer size (frames per I/O cycle)
