@@ -246,6 +246,9 @@ pub const CoreAudioGraphDriver = struct {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
         _ = buffer_size; // Buffer size is managed by CoreAudio
 
+        // Store sample rate for use in callbacks
+        driver.sample_rate = @floatFromInt(sample_rate);
+
         driver.distortion = @ptrCast(@alignCast(distortion));
         driver.convolver = @ptrCast(@alignCast(convolver));
 
@@ -663,7 +666,7 @@ pub const CoreAudioGraphDriver = struct {
             // AudioUnitRender cannot be used to pull input on output callback
             // Use input from Audio Queue instead
             const frequency = 220.0;
-            const sample_rate = 44100.0; // Match Audio Queue sample rate
+            const sample_rate = driver.sample_rate; // Use actual configured sample rate
 
             var input_sample_count: u32 = 0;
             var test_tone_count: u32 = 0;

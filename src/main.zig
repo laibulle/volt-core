@@ -47,7 +47,14 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--sample-rate") or std.mem.eql(u8, args[i], "-sr")) {
             if (i + 1 < args.len) {
-                sample_rate = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
+                const requested_rate = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
+                // Validate common sample rates
+                if (requested_rate != 44100 and requested_rate != 48000 and requested_rate != 88200 and requested_rate != 96000 and requested_rate != 192000) {
+                    std.debug.print("Error: Invalid sample rate {d} Hz\n", .{requested_rate});
+                    std.debug.print("Supported rates: 44100, 48000, 88200, 96000, 192000\n", .{});
+                    return error.InvalidSampleRate;
+                }
+                sample_rate = requested_rate;
                 i += 1;
             }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
@@ -60,6 +67,7 @@ pub fn main() !void {
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
             std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
             std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
+            std.debug.print("                                    Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
             std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
             std.debug.print("  --help, -h                        Show this help message\n", .{});
             return;
