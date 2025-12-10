@@ -87,7 +87,7 @@ pub const WAVLoader = struct {
             while (sample_i < sample_count * channel_count) {
                 const bytes_read = file.readAll(&sample_buf) catch break;
                 if (bytes_read == 0) break;
-                
+
                 const int_sample = std.mem.readInt(i16, &sample_buf, .little);
                 const f_sample = @as(f32, @floatFromInt(int_sample)) / 32768.0;
                 buffer.samples[sample_i] = f_sample;

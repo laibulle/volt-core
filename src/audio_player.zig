@@ -71,7 +71,7 @@ pub const AudioPlayer = struct {
         std.debug.print("Playing audio...\n", .{});
 
         while (c.Pa_IsStreamActive(stream) > 0) {
-            std.time.sleep(100_000_000); // 100ms
+            std.Thread.sleep(100_000_000); // 100ms
         }
 
         self.is_playing = false;

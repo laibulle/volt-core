@@ -41,6 +41,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    // Add include paths for C interop
+    mod.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
     // to the module defined above, it's sometimes preferable to split business
@@ -86,7 +89,7 @@ pub fn build(b: *std.Build) void {
     // Link PortAudio for real-time audio playback
     exe.linkSystemLibrary("portaudio");
     exe.linkLibC();
-    
+
     // Add homebrew library path for macOS
     exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
     exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });

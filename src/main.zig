@@ -13,7 +13,7 @@ pub fn main() !void {
     // Load guitar sample
     const loader = volt_core.wav_loader.WAVLoader.init(allocator);
     std.debug.print("Loading guitar sample: Electric Guitar 1 - Raw_105.wav\n", .{});
-    
+
     var audio_buffer = loader.loadFile("Electric Guitar 1 - Raw_105.wav") catch |err| {
         std.debug.print("Error loading file: {}\n", .{err});
         return err;
@@ -28,8 +28,8 @@ pub fn main() !void {
 
     // Apply distortion effect
     var distortion = volt_core.effects.Distortion{
-        .drive = 2.5,  // Moderate-high distortion
-        .tone = 0.8,   // Warm tone
+        .drive = 2.5, // Moderate-high distortion
+        .tone = 0.8, // Warm tone
     };
 
     std.debug.print("\nApplying distortion (drive: {d:.1}, tone: {d:.1})...\n", .{ distortion.drive, distortion.tone });
@@ -49,7 +49,6 @@ pub fn main() !void {
 
     std.debug.print("\n✓ Playback complete!\n", .{});
 }
-
 
 test "simple test" {
     const gpa = std.testing.allocator;
