@@ -483,7 +483,7 @@ pub const CoreAudioGraphDriver = struct {
         in_number_frames: u32,
         io_data: [*c]c.AudioBufferList,
     ) callconv(.c) c.OSStatus {
-        const _driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
+        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
         // Only process the output bus
         if (in_bus_number != 0 or io_data == null or io_data.*.mNumberBuffers == 0) {
@@ -524,7 +524,7 @@ pub const CoreAudioGraphDriver = struct {
         // Render from input bus (bus 1 on HALOutput)
         var flags: c.AudioUnitRenderActionFlags = 0;
         const render_err = c.AudioUnitRender(
-            _driver.input_unit,
+            driver.input_unit,
             &flags,
             in_time_stamp,
             1, // input bus
@@ -534,9 +534,27 @@ pub const CoreAudioGraphDriver = struct {
 
         if (render_err != 0) {
             // AudioUnitRender cannot be used to pull input on output callback
-            // For now, output silence - we need a different architecture for input capture
-            // (e.g., separate input callback or Audio Queue)
-            @memset(audio_out, 0.0);
+            // For testing, generate a guitar-like signal (square wave at 220Hz = A3 note)
+            // This lets us test the effects chain before implementing proper input capture
+            const frequency = 220.0; // A3 note (guitar low E is ~82 Hz)
+            const sample_rate = 48000.0; // Match device sample rate
+            const phase_increment = @as(f32, @floatCast(frequency / sample_rate));
+
+            // Use the driver's counter for continuous phase
+            driver.conv_state_pos += in_number_frames;
+            const pos_f64 = @as(f64, @floatFromInt(@as(i64, @intCast(driver.conv_state_pos))));
+            var phase = @as(f32, @floatCast(pos_f64 / 48000.0));
+            phase = phase - @floor(phase); // Keep phase in [0, 1)
+
+            for (audio_out, 0..) |_, i| {
+                // Square wave (simple guitar-like signal for testing)
+                const sample = if (phase < 0.5) @as(f32, 0.3) else @as(f32, -0.3);
+                audio_out[i] = sample;
+                phase += phase_increment;
+                if (phase >= 1.0) {
+                    phase -= 1.0;
+                }
+            }
             return 0;
         }
 
@@ -545,7 +563,7 @@ pub const CoreAudioGraphDriver = struct {
         for (input_samples, 0..) |sample, i| {
             // Apply distortion if available
             var processed = sample;
-            if (_driver.distortion) |dist| {
+            if (driver.distortion) |dist| {
                 processed = dist.process(sample);
             }
 
