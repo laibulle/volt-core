@@ -374,8 +374,6 @@ pub const CoreAudioDriver = struct {
         in_number_frames: u32,
         io_data: [*c]c.AudioBufferList,
     ) callconv(.c) c.OSStatus {
-        _ = io_action_flags;
-        _ = in_time_stamp;
         _ = in_bus_number;
 
         const driver: *CoreAudioDriver = @ptrCast(@alignCast(in_ref_con));
@@ -392,19 +390,38 @@ pub const CoreAudioDriver = struct {
         const audio_buffer = &buffer_list.*.mBuffers[0];
         const out = @as([*]f32, @ptrCast(@alignCast(audio_buffer.mData)));
 
-        // Generate a test tone at 440 Hz to verify audio output is working
-        const frequency: f64 = 440.0;
-        const two_pi = 2.0 * std.math.pi;
-        const phase_increment = frequency / driver.sample_rate;
+        // Try to pull input audio from the input bus
+        // Allocate a temporary buffer for input
+        var input_buffers: [1]c.AudioBuffer = undefined;
+        var input_data: [8192]f32 = undefined; // Enough for 256 samples at 32-bit
+        
+        input_buffers[0].mNumberChannels = 1;
+        input_buffers[0].mDataByteSize = in_number_frames * @sizeOf(f32);
+        input_buffers[0].mData = @ptrCast(&input_data);
+        
+        var input_buffer_list: c.AudioBufferList = undefined;
+        input_buffer_list.mNumberBuffers = 1;
+        input_buffer_list.mBuffers[0] = input_buffers[0];
+
+        // Render input from the input bus
+        const render_err = c.AudioUnitRender(
+            driver.audio_unit,
+            io_action_flags,
+            in_time_stamp,
+            1, // Input bus
+            in_number_frames,
+            &input_buffer_list,
+        );
+
+        // Use input if available, otherwise use silence
+        const input: [*]f32 = if (render_err == 0)
+            @as([*]f32, @ptrCast(&input_data))
+        else
+            out; // Fallback - will process silence
 
         // Process each sample
         for (0..in_number_frames) |i| {
-            // Generate test tone
-            var sample: f64 = @sin(driver.phase * two_pi) * 0.2;
-            driver.phase += phase_increment;
-            if (driver.phase >= 1.0) {
-                driver.phase -= 1.0;
-            }
+            var sample: f64 = @as(f64, input[i]);
 
             // Apply distortion
             const driven = sample * driver.distortion.?.drive;
