@@ -240,8 +240,7 @@ pub const CoreAudioGraphDriver = struct {
         buffer_size: usize,
         sample_rate: u32,
         duration: f64,
-        distortion: *anyopaque,
-        convolver: *anyopaque,
+        effects_chain: []const *anyopaque,
     ) !void {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
         _ = buffer_size; // Buffer size is managed by CoreAudio
@@ -249,8 +248,14 @@ pub const CoreAudioGraphDriver = struct {
         // Store sample rate for use in callbacks
         driver.sample_rate = @floatFromInt(sample_rate);
 
-        driver.distortion = @ptrCast(@alignCast(distortion));
-        driver.convolver = @ptrCast(@alignCast(convolver));
+        // Extract effects from array (for now, expecting distortion at index 0)
+        // TODO: Make this more flexible with effect type identification
+        if (effects_chain.len > 0) {
+            driver.distortion = @ptrCast(@alignCast(effects_chain[0]));
+        }
+        if (effects_chain.len > 1) {
+            driver.convolver = @ptrCast(@alignCast(effects_chain[1]));
+        }
 
         // Convert device indices to actual device IDs
         driver.input_device_id = try getDeviceIdByIndex(input_device);
@@ -259,12 +264,14 @@ pub const CoreAudioGraphDriver = struct {
         std.debug.print("Using input device ID: 0x{x}\n", .{driver.input_device_id});
         std.debug.print("Using output device ID: 0x{x}\n", .{driver.output_device_id});
 
-        // Allocate convolution state buffer
-        const conv_state_len = driver.convolver.?.ir_length;
-        const conv_state = try driver.allocator.alloc(f32, conv_state_len);
-        @memset(conv_state, 0.0);
-        driver.conv_state = conv_state.ptr;
-        driver.conv_state_len = conv_state_len;
+        // Allocate convolution state buffer (only if convolver is present)
+        if (driver.convolver) |conv| {
+            const conv_state_len = conv.ir_length;
+            const conv_state = try driver.allocator.alloc(f32, conv_state_len);
+            @memset(conv_state, 0.0);
+            driver.conv_state = conv_state.ptr;
+            driver.conv_state_len = conv_state_len;
+        }
         driver.conv_state_pos = 0;
 
         var err: c.OSStatus = 0;
@@ -431,8 +438,32 @@ pub const CoreAudioGraphDriver = struct {
             }
         }
 
-        // Note: Format setting often fails on HALOutput units during active I/O.
-        // CoreAudio will negotiate format automatically, so we just proceed.
+        // Set Audio Unit stream format to match device sample rate
+        var stream_format: c.AudioStreamBasicDescription = undefined;
+        stream_format.mSampleRate = driver.sample_rate;
+        stream_format.mFormatID = c.kAudioFormatLinearPCM;
+        stream_format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked | c.kAudioFormatFlagIsNonInterleaved;
+        stream_format.mBytesPerPacket = 4;
+        stream_format.mFramesPerPacket = 1;
+        stream_format.mBytesPerFrame = 4;
+        stream_format.mChannelsPerFrame = 1;
+        stream_format.mBitsPerChannel = 32;
+        stream_format.mReserved = 0;
+
+        // Set format on output scope (what we write to)
+        err = c.AudioUnitSetProperty(
+            driver.input_unit,
+            c.kAudioUnitProperty_StreamFormat,
+            c.kAudioUnitScope_Output,
+            0,
+            &stream_format,
+            @sizeOf(c.AudioStreamBasicDescription),
+        );
+        if (err != 0) {
+            std.debug.print("⚠️  Warning: Could not set output stream format: error {d}\n", .{err});
+        } else {
+            std.debug.print("✓ Set Audio Unit stream format to {d:.0} Hz\n", .{driver.sample_rate});
+        }
 
         // Set the render callback on the OUTPUT bus to capture and process audio
         var callback: c.AURenderCallbackStruct = undefined;
@@ -723,6 +754,11 @@ pub const CoreAudioGraphDriver = struct {
                 processed = dist.process(sample);
             }
 
+            // Convolution disabled for testing
+            // if (driver.convolver) |conv| {
+            //     processed = conv.processSample(processed);
+            // }
+
             // Clamp and output
             audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
             max_output = @max(max_output, @abs(audio_out[i]));
@@ -746,8 +782,8 @@ fn initVTable(allocator: std.mem.Allocator) !*AudioDriver {
     return driver_on_heap;
 }
 
-fn startProcessingVTable(self: *AudioDriver, input_device: i32, output_device: i32, buffer_size: usize, sample_rate: u32, duration: f64, distortion: *anyopaque, convolver: *anyopaque) !void {
-    try CoreAudioGraphDriver.startProcessing(self, input_device, output_device, buffer_size, sample_rate, duration, distortion, convolver);
+fn startProcessingVTable(self: *AudioDriver, input_device: i32, output_device: i32, buffer_size: usize, sample_rate: u32, duration: f64, effects_chain: []const *anyopaque) !void {
+    try CoreAudioGraphDriver.startProcessing(self, input_device, output_device, buffer_size, sample_rate, duration, effects_chain);
 }
 
 const vtable = listDevicesVTable;

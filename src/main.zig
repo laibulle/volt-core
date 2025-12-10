@@ -89,34 +89,49 @@ pub fn main() !void {
 
     if (use_realtime) {
         // Load IR for convolution
-        const ir_loader = volt_core.ir_loader.IRLoader.init(allocator);
-        std.debug.print("Loading: samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav\n", .{});
+        // const ir_loader = volt_core.ir_loader.IRLoader.init(allocator);
+        // std.debug.print("Loading: samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav\n", .{});
 
-        var ir_buffer = ir_loader.loadFile("samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav") catch |err| {
-            std.debug.print("Error loading IR: {}\n", .{err});
-            return err;
-        };
-        defer ir_buffer.deinit(allocator);
+        // var ir_buffer = ir_loader.loadFile("samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav") catch |err| {
+        //     std.debug.print("Error loading IR: {}\n", .{err});
+        //     return err;
+        // };
+        // defer ir_buffer.deinit(allocator);
 
-        std.debug.print("✓ Loaded IR: {d} samples\n\n", .{ir_buffer.samples.len});
+        // std.debug.print("✓ Loaded IR: {d} samples\n\n", .{ir_buffer.samples.len});
 
-        // Setup effects
+        // Create empty IR buffer for testing (minimal impulse to bypass convolution)
+        // const audio = @import("volt_core").audio;
+        // var ir_buffer = try audio.AudioBuffer.init(allocator, 1, 1, 44100);
+        // ir_buffer.samples[0] = 1.0; // Single impulse = bypass
+        // defer ir_buffer.deinit(allocator);
+
+        // std.debug.print("✓ Using test IR (bypassed)\n\n", .{});
+
+        // Setup effects chain
         var distortion = volt_core.effects.Distortion{
             .drive = 6.5,
             .tone = 0.8,
         };
 
-        var convolver = try volt_core.effects.Convolver.init(allocator, ir_buffer);
-        defer convolver.deinit();
+        // var convolver = try volt_core.effects.Convolver.init(allocator, ir_buffer);
+        // defer convolver.deinit();
+
+        // Build effects array
+        const effects = [_]*anyopaque{
+            @ptrCast(&distortion),
+            // @ptrCast(&convolver), // Commented out for testing
+        };
 
         std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
-        std.debug.print("(Cabinet: Celestion Vintage 30)\n", .{});
+        std.debug.print("(Cabinet: disabled for testing)\n", .{});
         std.debug.print("(Buffer size: {d} frames)\n", .{buffer_size});
-        std.debug.print("(Sample rate: {d} Hz)\n\n", .{sample_rate});
+        std.debug.print("(Sample rate: {d} Hz)\n", .{sample_rate});
+        std.debug.print("(Effects: {d} in chain)\n\n", .{effects.len});
 
-        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &distortion, &convolver);
+        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &effects);
         driver.deinit(); // Clean up audio resources
     } else {
         // Load guitar sample (existing behavior)
@@ -137,7 +152,7 @@ pub fn main() !void {
 
         // Apply distortion effect
         var distortion = volt_core.effects.Distortion{
-            .drive = 6.5,
+            .drive = 10.0,
             .tone = 0.8,
         };
 

@@ -20,8 +20,7 @@ pub const AudioDriver = struct {
             buffer_size: usize,
             sample_rate: u32,
             duration: f64,
-            distortion: *anyopaque,
-            convolver: *anyopaque,
+            effects_chain: []const *anyopaque,
         ) anyerror!void,
 
         /// Stop real-time processing
@@ -46,10 +45,9 @@ pub const AudioDriver = struct {
         buffer_size: usize,
         sample_rate: u32,
         duration: f64,
-        distortion: *anyopaque,
-        convolver: *anyopaque,
+        effects_chain: []const *anyopaque,
     ) !void {
-        try self.vtable.start_processing(self, input_device, output_device, buffer_size, sample_rate, duration, distortion, convolver);
+        try self.vtable.start_processing(self, input_device, output_device, buffer_size, sample_rate, duration, effects_chain);
     }
 
     pub fn stopProcessing(self: *AudioDriver) void {
