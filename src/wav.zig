@@ -10,39 +10,52 @@ pub const WAVWriter = struct {
         };
     }
 
-    pub fn writeBuffer(self: WAVWriter, filename: []const u8, buffer: *const audio.AudioBuffer) !void {
+    pub fn writeBuffer(_: WAVWriter, filename: []const u8, buffer: *const audio.AudioBuffer) !void {
         const file = try std.fs.cwd().createFile(filename, .{});
         defer file.close();
 
-        var write_buffer: [8192]u8 = undefined;
-        var buffered_writer = std.io.bufferedWriter(file.writer());
-        const writer = buffered_writer.writer();
-        
-        // WAV header
-        try writer.writeAll("RIFF");
         const sample_count = buffer.samples.len / buffer.channel_count;
         const bytes_per_sample = 2; // 16-bit
         const data_size = sample_count * buffer.channel_count * bytes_per_sample;
         const file_size = 36 + data_size;
-        
-        try writer.writeInt(u32, @as(u32, @intCast(file_size)), .little);
-        try writer.writeAll("WAVE");
-        
+
+        // Write RIFF header
+        try file.writeAll("RIFF");
+        var le_buffer: [4]u8 = undefined;
+        std.mem.writeInt(u32, &le_buffer, @as(u32, @intCast(file_size)), .little);
+        try file.writeAll(&le_buffer);
+        try file.writeAll("WAVE");
+
         // fmt sub-chunk
-        try writer.writeAll("fmt ");
-        try writer.writeInt(u32, 16, .little); // subchunk1 size
-        try writer.writeInt(u16, 1, .little); // audio format (1 = PCM)
-        try writer.writeInt(u16, @as(u16, @intCast(buffer.channel_count)), .little);
-        try writer.writeInt(u32, buffer.sample_rate, .little);
+        try file.writeAll("fmt ");
+        std.mem.writeInt(u32, &le_buffer, 16, .little);
+        try file.writeAll(&le_buffer);
+        
+        var short_buffer: [2]u8 = undefined;
+        std.mem.writeInt(u16, &short_buffer, 1, .little); // audio format
+        try file.writeAll(&short_buffer);
+        
+        std.mem.writeInt(u16, &short_buffer, @as(u16, @intCast(buffer.channel_count)), .little);
+        try file.writeAll(&short_buffer);
+        
+        std.mem.writeInt(u32, &le_buffer, buffer.sample_rate, .little);
+        try file.writeAll(&le_buffer);
+        
         const byte_rate = buffer.sample_rate * buffer.channel_count * bytes_per_sample;
-        try writer.writeInt(u32, @as(u32, @intCast(byte_rate)), .little);
+        std.mem.writeInt(u32, &le_buffer, @as(u32, @intCast(byte_rate)), .little);
+        try file.writeAll(&le_buffer);
+        
         const block_align = buffer.channel_count * bytes_per_sample;
-        try writer.writeInt(u16, @as(u16, @intCast(block_align)), .little);
-        try writer.writeInt(u16, 16, .little); // bits per sample
+        std.mem.writeInt(u16, &short_buffer, @as(u16, @intCast(block_align)), .little);
+        try file.writeAll(&short_buffer);
+        
+        std.mem.writeInt(u16, &short_buffer, 16, .little); // bits per sample
+        try file.writeAll(&short_buffer);
 
         // data sub-chunk
-        try writer.writeAll("data");
-        try writer.writeInt(u32, @as(u32, @intCast(data_size)), .little);
+        try file.writeAll("data");
+        std.mem.writeInt(u32, &le_buffer, @as(u32, @intCast(data_size)), .little);
+        try file.writeAll(&le_buffer);
 
         // Write audio data
         for (buffer.samples) |sample| {
@@ -51,9 +64,8 @@ pub const WAVWriter = struct {
             if (clamped < -1.0) clamped = -1.0;
             
             const int_sample = @as(i16, @intFromFloat(clamped * 32767.0));
-            try writer.writeInt(i16, int_sample, .little);
+            std.mem.writeInt(i16, &short_buffer, int_sample, .little);
+            try file.writeAll(&short_buffer);
         }
-
-        try buffered_writer.flush();
     }
 };

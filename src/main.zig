@@ -11,14 +11,14 @@ pub fn main() !void {
     std.debug.print("==================================\n\n", .{});
 
     // Create audio buffer for guitar signal
-    const sample_rate = 44100;
-    const duration_seconds = 2;
+    const sample_rate: u32 = 44100;
+    const duration_seconds: u32 = 2;
     const sample_count = sample_rate * duration_seconds;
-    const channel_count = 2; // stereo
+    const channel_count: u32 = 2; // stereo
 
     var audio_buffer = try volt_core.audio.AudioBuffer.init(
         allocator,
-        sample_count,
+        @as(usize, sample_count),
         channel_count,
         sample_rate,
     );
