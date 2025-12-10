@@ -438,15 +438,38 @@ pub const CoreAudioGraphDriver = struct {
             }
         }
 
-        // Set Audio Unit stream format to match device sample rate
+        // Query device channel count
+        const kAudioDevicePropertyStreamConfiguration: u32 = 0x73636667; // 'sccg'
+        var bufferList: c.AudioBufferList = undefined;
+        var bufferListSize: u32 = @sizeOf(c.AudioBufferList);
+        prop_address.mSelector = kAudioDevicePropertyStreamConfiguration;
+        prop_address.mScope = c.kAudioDevicePropertyScopeOutput;
+        
+        var output_channels: u32 = 2; // Default stereo
+        if (driver.output_device_id != 0) {
+            err = c.AudioObjectGetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                &bufferListSize,
+                &bufferList,
+            );
+            if (err == 0 and bufferList.mNumberBuffers > 0) {
+                output_channels = bufferList.mBuffers[0].mNumberChannels;
+                std.debug.print("🔧 Device has {d} output channels\n", .{output_channels});
+            }
+        }
+
+        // Set Audio Unit stream format to match device
         var stream_format: c.AudioStreamBasicDescription = undefined;
         stream_format.mSampleRate = driver.sample_rate;
         stream_format.mFormatID = c.kAudioFormatLinearPCM;
         stream_format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked | c.kAudioFormatFlagIsNonInterleaved;
-        stream_format.mBytesPerPacket = 4;
+        stream_format.mBytesPerPacket = 4 * output_channels;
         stream_format.mFramesPerPacket = 1;
-        stream_format.mBytesPerFrame = 4;
-        stream_format.mChannelsPerFrame = 1;
+        stream_format.mBytesPerFrame = 4 * output_channels;
+        stream_format.mChannelsPerFrame = output_channels;
         stream_format.mBitsPerChannel = 32;
         stream_format.mReserved = 0;
 
@@ -463,6 +486,27 @@ pub const CoreAudioGraphDriver = struct {
             std.debug.print("⚠️  Warning: Could not set output stream format: error {d}\n", .{err});
         } else {
             std.debug.print("✓ Set Audio Unit stream format to {d:.0} Hz\n", .{driver.sample_rate});
+        }
+
+        // Query what format the Audio Unit actually ended up using
+        var actual_format: c.AudioStreamBasicDescription = undefined;
+        var format_size: u32 = @sizeOf(c.AudioStreamBasicDescription);
+        err = c.AudioUnitGetProperty(
+            driver.input_unit,
+            c.kAudioUnitProperty_StreamFormat,
+            c.kAudioUnitScope_Output,
+            0,
+            &actual_format,
+            &format_size,
+        );
+        if (err == 0) {
+            std.debug.print("🔍 Audio Unit ACTUAL output format: {d:.0} Hz, {d} channels\n", .{ actual_format.mSampleRate, actual_format.mChannelsPerFrame });
+            if (actual_format.mSampleRate != driver.sample_rate) {
+                std.debug.print("⚠️  CRITICAL: Sample rate mismatch! Requested {d:.0}, got {d:.0}\n", .{ driver.sample_rate, actual_format.mSampleRate });
+                std.debug.print("⚠️  This WILL cause pitch issues. Audio Unit is forcing device rate.\n", .{});
+                // Update driver to use actual rate
+                driver.sample_rate = actual_format.mSampleRate;
+            }
         }
 
         // Set the render callback on the OUTPUT bus to capture and process audio
@@ -651,7 +695,10 @@ pub const CoreAudioGraphDriver = struct {
             return 0;
         }
 
-        // Get the output buffer to fill
+        // Get all output buffers (non-interleaved format has one buffer per channel)
+        const num_buffers = io_data.*.mNumberBuffers;
+        
+        // Get the first channel buffer (left/main output)
         const buffer_ptr = io_data.*.mBuffers[0].mData;
         if (buffer_ptr == null) {
             return 0;
@@ -759,9 +806,22 @@ pub const CoreAudioGraphDriver = struct {
             //     processed = conv.processSample(processed);
             // }
 
-            // Clamp and output
-            audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
-            max_output = @max(max_output, @abs(audio_out[i]));
+            // Clamp and output to first channel
+            const clamped = std.math.clamp(processed, -1.0, 1.0);
+            audio_out[i] = clamped;
+            max_output = @max(max_output, @abs(clamped));
+        }
+
+        // Copy first channel to all other channels for multi-channel devices
+        // This ensures we output to all device channels (e.g., Scarlett 18i8 has 8 outputs)
+        if (num_buffers > 1) {
+            for (1..num_buffers) |buf_idx| {
+                const other_buffer_ptr = io_data.*.mBuffers[buf_idx].mData;
+                if (other_buffer_ptr) |ptr| {
+                    const other_audio: [*]f32 = @ptrCast(@alignCast(ptr));
+                    @memcpy(other_audio[0..in_number_frames], audio_out);
+                }
+            }
         }
 
         return 0;
