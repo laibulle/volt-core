@@ -201,11 +201,19 @@ pub const RealtimeProcessor = struct {
             return error.PortAudioStartStreamFailed;
         }
 
-        std.debug.print("✓ Real-time processing started (input → distortion → cabinet → output)\n\n", .{});
+        std.debug.print("✓ Real-time processing started (input → distortion → cabinet → output)\n", .{});
+        std.debug.print("Press Ctrl+C to stop...\n\n", .{});
 
-        // Run for specified duration
-        const sleep_duration: u64 = @as(u64, @intFromFloat(duration_seconds * 1_000_000_000));
-        std.Thread.sleep(sleep_duration);
+        // Run for specified duration (or indefinitely if duration <= 0)
+        if (duration_seconds > 0) {
+            const sleep_duration: u64 = @as(u64, @intFromFloat(duration_seconds * 1_000_000_000));
+            std.Thread.sleep(sleep_duration);
+        } else {
+            // Run indefinitely - sleep in 1 second intervals
+            while (true) {
+                std.Thread.sleep(1_000_000_000); // 1 second
+            }
+        }
 
         // Stop stream
         _ = c.Pa_StopStream(stream);

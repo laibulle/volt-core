@@ -16,7 +16,7 @@ pub fn main() !void {
 
     var use_realtime = false;
     var list_devices = false;
-    var duration: f32 = 10.0; // Default 10 seconds for realtime
+    var duration: f32 = -1.0; // -1 means infinite (run until Ctrl+C)
     var input_device: i32 = -1; // -1 means use default
     var output_device: i32 = -1; // -1 means use default
 
@@ -49,7 +49,7 @@ pub fn main() !void {
             std.debug.print("  --realtime, -rt                   Use ASIO input (real-time guitar input)\n", .{});
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
-            std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: 10s)\n", .{});
+            std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
             std.debug.print("  --help, -h                        Show this help message\n", .{});
             return;
         }
