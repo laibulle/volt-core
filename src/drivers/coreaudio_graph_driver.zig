@@ -503,6 +503,12 @@ pub const CoreAudioGraphDriver = struct {
     ) callconv(.c) c.OSStatus {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
+        // Debug: Count callbacks
+        driver.conv_state_pos += 1;
+        if (driver.conv_state_pos % 1500 == 0) { // ~31ms at 48kHz with 32-frame buffer
+            std.debug.print("Render callback called, frames: {}, bus: {}\n", .{in_number_frames, in_bus_number});
+        }
+
         // Only process the output bus
         if (in_bus_number != 0 or io_data == null or io_data.*.mNumberBuffers == 0) {
             return 0;
@@ -553,21 +559,27 @@ pub const CoreAudioGraphDriver = struct {
         if (render_err != 0) {
             // AudioUnitRender cannot be used to pull input on output callback
             // Try to get samples from input queue instead
+            var got_samples = false;
             for (0..in_number_frames) |i| {
                 if (driver.input_queue) |queue| {
                     if (queue.getSample()) |sample| {
                         input_buffer[i] = sample;
+                        got_samples = true;
                     } else {
-                        // No input available yet, use silence
-                        input_buffer[i] = 0.0;
+                        // No input available - generate test tone
+                        driver.conv_state_pos += 1;
+                        const pos_f64 = @as(f64, @floatFromInt(@as(i64, @intCast(driver.conv_state_pos))));
+                        const phase = @as(f32, @floatCast(@mod(pos_f64, 48000.0) / 48000.0));
+                        const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
+                        input_buffer[i] = sample_test;
                     }
                 } else {
-                    // No input queue - generate test tone as fallback
+                    // No input queue - generate test tone
                     driver.conv_state_pos += 1;
                     const pos_f64 = @as(f64, @floatFromInt(@as(i64, @intCast(driver.conv_state_pos))));
                     const phase = @as(f32, @floatCast(@mod(pos_f64, 48000.0) / 48000.0));
-                    
-                    const sample_test = if (phase < 0.5) @as(f32, 0.3) else @as(f32, -0.3);
+
+                    const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
                     input_buffer[i] = sample_test;
                 }
             }
@@ -575,15 +587,16 @@ pub const CoreAudioGraphDriver = struct {
 
         // We have input samples - apply effects and output them
         const input_samples = input_buffer[0..in_number_frames];
+        var non_zero_count: u32 = 0;
         for (input_samples, 0..) |sample, i| {
-            // Apply distortion if available
-            var processed = sample;
-            if (driver.distortion) |dist| {
-                processed = dist.process(sample);
+            // Direct output test - bypass distortion to verify output path
+            audio_out[i] = sample; // Just pass through for now
+            if (sample != 0.0) {
+                non_zero_count += 1;
             }
-
-            // Clamp and output
-            audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
+        }
+        if (non_zero_count == 0 and in_number_frames > 10) {
+            std.debug.print("WARNING: All zeros in output ({} frames)\n", .{in_number_frames});
         }
         return 0;
     }

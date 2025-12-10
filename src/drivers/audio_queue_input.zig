@@ -10,12 +10,12 @@ const BUFFER_SIZE = 4096; // Samples per buffer
 pub const AudioQueueInput = struct {
     queue: c.AudioQueueRef = null,
     allocator: std.mem.Allocator,
-    
+
     // Input ring buffer - thread-safe storage for captured samples
     input_buffer: [BUFFER_SIZE * BUFFER_COUNT]f32 = undefined,
     write_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     read_pos: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-    
+    samples_captured: std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator, device_id: c.AudioDeviceID) !Self {
@@ -46,7 +46,7 @@ pub const AudioQueueInput = struct {
             null, // We'll use global instance instead
             null, // Use default run loop
             null, // Use default run loop mode
-            0,    // Flags
+            0, // Flags
             &self.queue,
         );
 
@@ -63,7 +63,7 @@ pub const AudioQueueInput = struct {
                 std.debug.print("Error allocating audio queue buffer: {}\n", .{err});
                 return error.BufferAllocationFailed;
             }
-            
+
             err = c.AudioQueueEnqueueBuffer(self.queue, buffer, 0, null);
             if (err != 0) {
                 std.debug.print("Error enqueuing audio queue buffer: {}\n", .{err});
@@ -127,6 +127,7 @@ fn audioQueueInputCallback(
             const samples = @as([*]f32, @ptrCast(@alignCast(data)))[0..inNumberPackets];
             for (samples) |sample| {
                 self.writeSample(sample);
+                self.samples_captured.store(self.samples_captured.load(.monotonic) + 1, .monotonic);
             }
         }
 
