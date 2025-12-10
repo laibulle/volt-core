@@ -62,8 +62,9 @@ pub const AudioDriver = struct {
 /// Detect which driver should be used based on platform
 pub fn selectDriver() type {
     const builtin = @import("builtin");
-    // For now, use PortAudio on both platforms (most stable)
-    // TODO: Switch to CoreAudio on macOS once fully implemented for lower latency
+    // Use PortAudio on both platforms for now
+    // PortAudio is stable and cross-platform
+    // CoreAudio implementation pending full testing
     if (comptime builtin.os.tag == .macos or builtin.os.tag == .linux) {
         return @import("drivers/portaudio_driver.zig").PortAudioDriver;
     } else {
