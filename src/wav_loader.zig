@@ -98,7 +98,7 @@ pub const WAVLoader = struct {
                 buffer.samples[sample_i] = f_sample;
                 sample_i += 1;
             }
-            
+
             std.debug.print("[WAV Loader] Read {d} 16-bit samples, expected {d}\n", .{ sample_i, sample_count * channel_count });
         } else if (bits_per_sample == 24) {
             var sample_i: usize = 0;
@@ -123,7 +123,7 @@ pub const WAVLoader = struct {
                 buffer.samples[sample_i] = f_sample;
                 sample_i += 1;
             }
-            
+
             std.debug.print("[WAV Loader] Read {d} 24-bit samples, expected {d}\n", .{ sample_i, sample_count * channel_count });
         } else {
             std.debug.print("[WAV Loader] Unsupported bits per sample: {d}\n", .{bits_per_sample});
