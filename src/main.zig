@@ -63,12 +63,18 @@ pub fn main() !void {
         var processor = try volt_core.realtime_processor.RealtimeProcessor.init(allocator);
         defer processor.deinit();
 
+        // List available devices
+        processor.listDevices();
+
+        // Prompt user to select devices
+        const devices = try processor.promptDeviceSelection();
+
         std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
         std.debug.print("(Cabinet: Celestion Vintage 30)\n\n", .{});
 
-        try processor.startProcessing(&distortion, &convolver, 44100, duration);
+        try processor.startProcessing(&distortion, &convolver, 44100, duration, devices.input_device, devices.output_device);
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);

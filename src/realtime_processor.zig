@@ -88,6 +88,39 @@ pub const RealtimeProcessor = struct {
         };
     }
 
+    pub fn listDevices(self: *RealtimeProcessor) void {
+        _ = self;
+        const device_count = c.Pa_GetDeviceCount();
+        std.debug.print("\nAvailable Audio Devices:\n", .{});
+        std.debug.print("========================\n\n", .{});
+
+        for (0..@as(usize, @intCast(device_count))) |i| {
+            const device_info = c.Pa_GetDeviceInfo(@as(c.PaDeviceIndex, @intCast(i)));
+            if (device_info != null) {
+                const info = device_info.?;
+                std.debug.print("[{d}] {s}\n", .{ i, info[0].name });
+                std.debug.print("    Input Channels: {d}\n", .{info[0].maxInputChannels});
+                std.debug.print("    Output Channels: {d}\n", .{info[0].maxOutputChannels});
+                std.debug.print("    Default Sample Rate: {d} Hz\n", .{@as(u32, @intFromFloat(info[0].defaultSampleRate))});
+                std.debug.print("    Host API: {d}\n\n", .{info[0].hostApi});
+            }
+        }
+    }
+
+    pub fn promptDeviceSelection(self: *RealtimeProcessor) !struct { input_device: c.PaDeviceIndex, output_device: c.PaDeviceIndex } {
+        _ = self;
+
+        // For now, use default devices
+        // In a real application, this would prompt interactively
+        const input_device = c.Pa_GetDefaultInputDevice();
+        const output_device = c.Pa_GetDefaultOutputDevice();
+
+        std.debug.print("Using Input Device: {d}\n", .{input_device});
+        std.debug.print("Using Output Device: {d}\n\n", .{output_device});
+
+        return .{ .input_device = input_device, .output_device = output_device };
+    }
+
     pub fn deinit(self: *RealtimeProcessor) void {
         if (self.stream != null) {
             _ = c.Pa_StopStream(self.stream);
@@ -108,6 +141,8 @@ pub const RealtimeProcessor = struct {
         convolver: *effects.Convolver,
         sample_rate: u32,
         duration_seconds: f32,
+        input_device: c.PaDeviceIndex,
+        output_device: c.PaDeviceIndex,
     ) !void {
         // Allocate convolver state buffer
         const conv_state_len = @max(64, convolver.ir_length / 10); // Smaller buffer for real-time
@@ -125,17 +160,17 @@ pub const RealtimeProcessor = struct {
         };
         self.context = ctx;
 
-        // Setup input parameters for default ASIO device
+        // Setup input parameters for selected device
         var input_params: c.PaStreamParameters = undefined;
-        input_params.device = c.Pa_GetDefaultInputDevice();
+        input_params.device = input_device;
         input_params.channelCount = 1; // Mono input
         input_params.sampleFormat = c.paFloat32;
         input_params.suggestedLatency = 0.01; // 10ms for low latency
         input_params.hostApiSpecificStreamInfo = null;
 
-        // Setup output parameters
+        // Setup output parameters for selected device
         var output_params: c.PaStreamParameters = undefined;
-        output_params.device = c.Pa_GetDefaultOutputDevice();
+        output_params.device = output_device;
         output_params.channelCount = 1; // Mono output
         output_params.sampleFormat = c.paFloat32;
         output_params.suggestedLatency = 0.01; // 10ms for low latency
