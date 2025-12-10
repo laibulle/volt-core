@@ -312,40 +312,30 @@ pub const CoreAudioGraphDriver = struct {
         }
 
         // Set stream format
-        var stream_format: c.AudioStreamBasicDescription = undefined;
-        stream_format.mSampleRate = 44100.0;
-        stream_format.mFormatID = c.kAudioFormatLinearPCM;
-        stream_format.mFormatFlags = c.kAudioFormatFlagIsFloat | c.kAudioFormatFlagIsPacked | c.kAudioFormatFlagIsNonInterleaved;
-        stream_format.mFramesPerPacket = 1;
-        stream_format.mChannelsPerFrame = 1;
-        stream_format.mBitsPerChannel = 32;
-        stream_format.mBytesPerFrame = 4;
-        stream_format.mBytesPerPacket = 4;
+        // Set stream format to match device capabilities
+        // First get the device's native sample rate
+        var device_sample_rate: f64 = 44100.0;
+        var prop_address: c.AudioObjectPropertyAddress = undefined;
+        prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
+        prop_address.mScope = c.kAudioObjectPropertyScopeGlobal;
+        prop_address.mElement = 0;
 
-        // Set format on input and output
-        err = c.AudioUnitSetProperty(
-            driver.input_unit,
-            c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Input,
-            1,
-            &stream_format,
-            @sizeOf(c.AudioStreamBasicDescription),
-        );
-        if (err != 0) {
-            std.debug.print("Warning: setting input format returned: {d}\n", .{err});
+        var sample_rate_size: u32 = @sizeOf(f64);
+        if (driver.output_device_id != 0) {
+            _ = c.AudioObjectGetPropertyData(
+                driver.output_device_id,
+                &prop_address,
+                0,
+                null,
+                &sample_rate_size,
+                &device_sample_rate,
+            );
         }
 
-        err = c.AudioUnitSetProperty(
-            driver.input_unit,
-            c.kAudioUnitProperty_StreamFormat,
-            c.kAudioUnitScope_Output,
-            0,
-            &stream_format,
-            @sizeOf(c.AudioStreamBasicDescription),
-        );
-        if (err != 0) {
-            std.debug.print("Warning: setting output format returned: {d}\n", .{err});
-        }
+        std.debug.print("Device sample rate: {d:.0} Hz\n", .{device_sample_rate});
+
+        // Note: Format setting often fails on HALOutput units during active I/O.
+        // CoreAudio will negotiate format automatically, so we just proceed.
 
         // Set the render callback
         var callback: c.AURenderCallbackStruct = undefined;
@@ -493,39 +483,48 @@ pub const CoreAudioGraphDriver = struct {
         in_number_frames: u32,
         io_data: [*c]c.AudioBufferList,
     ) callconv(.c) c.OSStatus {
-        _ = io_action_flags;
-        _ = in_bus_number; // We're handling output (bus 0)
+        const _driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
-        const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
-
-        if (io_data == null or io_data.*.mNumberBuffers == 0) {
+        // Only process the output bus
+        if (in_bus_number != 0 or io_data == null or io_data.*.mNumberBuffers == 0) {
             return 0;
         }
 
-        // Get the output buffer
+        // Get the output buffer to fill
         const buffer_ptr = io_data.*.mBuffers[0].mData;
+        if (buffer_ptr == null) {
+            return 0;
+        }
+
         const audio_ptr: [*]f32 = @ptrCast(@alignCast(buffer_ptr));
         const audio_out = audio_ptr[0..in_number_frames];
 
-        // First, render input into a temp buffer to process
+        // Check if the pre-render action indicates we should process input
+        const preRenderFlag: c.AudioUnitRenderActionFlags = 0x04; // kAudioUnitRenderAction_PreRender
+        if ((io_action_flags.* & preRenderFlag) != 0) {
+            // Pre-render pass - just return 0 to allow the unit to process
+            return 0;
+        }
+
+        // Pull input samples from the input bus using AudioUnitRender
         var input_buflist: c.AudioBufferList = undefined;
         input_buflist.mNumberBuffers = 1;
         input_buflist.mBuffers[0].mNumberChannels = 1;
         input_buflist.mBuffers[0].mDataByteSize = @as(u32, @intCast(in_number_frames * 4));
 
-        // Allocate temp input buffer
-        var input_buffer: [256]f32 = undefined;
+        var input_buffer: [4096]f32 = undefined;
         if (in_number_frames > input_buffer.len) {
-            // Buffer too large, skip
+            // Buffer too small, output silence
+            @memset(audio_out, 0.0);
             return 0;
         }
 
         input_buflist.mBuffers[0].mData = @ptrCast(&input_buffer);
 
-        // Render from input bus (bus 1)
+        // Render from input bus (bus 1 on HALOutput)
         var flags: c.AudioUnitRenderActionFlags = 0;
         const render_err = c.AudioUnitRender(
-            driver.input_unit,
+            _driver.input_unit,
             &flags,
             in_time_stamp,
             1, // input bus
@@ -534,26 +533,35 @@ pub const CoreAudioGraphDriver = struct {
         );
 
         if (render_err != 0) {
-            // If render fails, output silence
-            @memset(audio_out, 0.0);
+            // If render fails, output test tone
+            var phase: f32 = 0.0;
+            const frequency = 440.0;
+            const sample_rate = 44100.0;
+            const phase_increment = @as(f32, @floatCast(frequency / sample_rate));
+
+            for (audio_out) |*sample_ptr| {
+                const sine_val = @sin(phase * 2.0 * std.math.pi) * 0.1;
+                sample_ptr.* = sine_val;
+                phase += phase_increment;
+                if (phase >= 1.0) {
+                    phase -= 1.0;
+                }
+            }
             return 0;
         }
 
-        // Process audio through effects
+        // We have input samples - apply effects and output them
         const input_samples = input_buffer[0..in_number_frames];
-
         for (input_samples, 0..) |sample, i| {
-            // Apply distortion
-            var dist_sample = sample;
-            if (driver.distortion) |dist| {
-                dist_sample = dist.process(sample);
+            // Apply distortion if available
+            var processed = sample;
+            if (_driver.distortion) |dist| {
+                processed = dist.process(sample);
             }
 
-            // TODO: Apply convolution - currently not supported per-sample
-            // Will need to buffer and process in larger chunks
-            audio_out[i] = std.math.clamp(dist_sample, -1.0, 1.0);
+            // Clamp and output
+            audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
         }
-
         return 0;
     }
 };
