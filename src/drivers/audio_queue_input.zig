@@ -82,9 +82,16 @@ pub const AudioQueueInput = struct {
         return self;
     }
 
+    var debug_get_count: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
+
     pub fn getSample(self: *Self) ?f32 {
         const read_idx = self.read_pos.load(.seq_cst);
         const write_idx = self.write_pos.load(.seq_cst);
+
+        const call_count = debug_get_count.fetchAdd(1, .monotonic);
+        if (call_count % 50000 == 0) {
+            std.debug.print("📖 getSample #{}: read={}, write={}, available={}, self={*}\n", .{ call_count, read_idx, write_idx, if (write_idx > read_idx) write_idx - read_idx else 0, self });
+        }
 
         if (read_idx == write_idx) {
             return null; // No data available
@@ -96,11 +103,19 @@ pub const AudioQueueInput = struct {
         return sample;
     }
 
+    var debug_write_count: std.atomic.Value(u64) = std.atomic.Value(u64).init(0);
+
     pub fn writeSample(self: *Self, sample: f32) void {
         const write_idx = self.write_pos.load(.seq_cst);
         const idx = write_idx % self.input_buffer.len;
         self.input_buffer[idx] = sample;
         self.write_pos.store(write_idx + 1, .seq_cst);
+
+        const call_count = debug_write_count.fetchAdd(1, .monotonic);
+        if (call_count % 50000 == 0) {
+            const read_idx = self.read_pos.load(.seq_cst);
+            std.debug.print("📝 writeSample #{}: write={}, read={}, self={*}\n", .{ call_count, write_idx + 1, read_idx, self });
+        }
     }
 
     pub fn deinit(self: *Self) void {

@@ -595,15 +595,16 @@ pub const CoreAudioGraphDriver = struct {
                     const phase = @mod(t * frequency / sample_rate, 1.0);
                     const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
                     input_buffer[i] = sample_test;
+                    test_tone_count += 1;
                 }
             }
 
             // Debug: Show if we're getting real input
-            if (driver.conv_state_pos < 5000 and (driver.conv_state_pos / in_number_frames) % 10 == 0) {
+            if ((driver.conv_state_pos / in_number_frames) % 100 == 0) {
                 if (input_sample_count > 0) {
-                    std.debug.print("✓ Got {}/{} input samples - hearing your guitar!\n", .{ input_sample_count, in_number_frames });
+                    std.debug.print("✓ Callback #{}: {}/{} guitar samples\n", .{ driver.conv_state_pos / in_number_frames, input_sample_count, in_number_frames });
                 } else if (test_tone_count > 0) {
-                    std.debug.print("⚠ No input - using test tone\n", .{});
+                    std.debug.print("⚠ Callback #{}: test tone ({} samples)\n", .{ driver.conv_state_pos / in_number_frames, test_tone_count });
                 }
             }
 
@@ -612,7 +613,15 @@ pub const CoreAudioGraphDriver = struct {
 
         // We have input samples - apply effects and output them
         const input_samples = input_buffer[0..in_number_frames];
+        var max_input: f32 = 0.0;
+        var max_output: f32 = 0.0;
+        var non_zero_count: u32 = 0;
+
         for (input_samples, 0..) |sample, i| {
+            // Track input level
+            max_input = @max(max_input, @abs(sample));
+            if (@abs(sample) > 0.001) non_zero_count += 1;
+
             // Apply distortion if available
             var processed = sample;
             if (driver.distortion) |dist| {
@@ -621,7 +630,22 @@ pub const CoreAudioGraphDriver = struct {
 
             // Clamp and output
             audio_out[i] = std.math.clamp(processed, -1.0, 1.0);
+            max_output = @max(max_output, @abs(audio_out[i]));
         }
+
+        // Debug audio levels every 100 callbacks
+        if ((driver.conv_state_pos / in_number_frames) % 100 == 0) {
+            std.debug.print("🔊 Input: peak={d:.4}, non-zero={}/{} | Output: peak={d:.4}\n", .{ max_input, non_zero_count, in_number_frames, max_output });
+            // Print first few output samples to verify they're being written
+            if (audio_out.len >= 10) {
+                std.debug.print("   First 10 output samples: ", .{});
+                for (0..10) |idx| {
+                    std.debug.print("{d:.3} ", .{audio_out[idx]});
+                }
+                std.debug.print("\n", .{});
+            }
+        }
+
         return 0;
     }
 };
