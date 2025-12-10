@@ -19,6 +19,7 @@ pub fn main() !void {
     var duration: f32 = -1.0; // -1 means infinite (run until Ctrl+C)
     var input_device: i32 = -1; // -1 means use default
     var output_device: i32 = -1; // -1 means use default
+    var buffer_size: u32 = 128; // Default 128 frames
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -41,6 +42,11 @@ pub fn main() !void {
                 output_device = try std.fmt.parseInt(i32, args[i + 1], 10);
                 i += 1;
             }
+        } else if (std.mem.eql(u8, args[i], "--buffer-size") or std.mem.eql(u8, args[i], "-bs")) {
+            if (i + 1 < args.len) {
+                buffer_size = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
+                i += 1;
+            }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
             std.debug.print("Usage: volt_core [options]\n", .{});
@@ -49,6 +55,7 @@ pub fn main() !void {
             std.debug.print("  --realtime, -rt                   Use ASIO input (real-time guitar input)\n", .{});
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
+            std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
             std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
             std.debug.print("  --help, -h                        Show this help message\n", .{});
             return;
@@ -111,9 +118,10 @@ pub fn main() !void {
         std.debug.print("\nStarting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
         std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
-        std.debug.print("(Cabinet: Celestion Vintage 30)\n\n", .{});
+        std.debug.print("(Cabinet: Celestion Vintage 30)\n", .{});
+        std.debug.print("(Buffer size: {d} frames)\n\n", .{buffer_size});
 
-        try processor.startProcessing(&distortion, &convolver, 44100, duration, selected_input, selected_output);
+        try processor.startProcessing(&distortion, &convolver, 44100, duration, selected_input, selected_output, buffer_size);
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);

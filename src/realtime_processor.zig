@@ -161,6 +161,7 @@ pub const RealtimeProcessor = struct {
         duration_seconds: f32,
         input_device: c.PaDeviceIndex,
         output_device: c.PaDeviceIndex,
+        buffer_size: u32,
     ) !void {
         // Allocate convolver state buffer
         const conv_state_len = @max(64, convolver.ir_length / 10); // Smaller buffer for real-time
@@ -183,7 +184,7 @@ pub const RealtimeProcessor = struct {
         input_params.device = input_device;
         input_params.channelCount = 1; // Mono input
         input_params.sampleFormat = c.paFloat32;
-        input_params.suggestedLatency = 0.01; // 10ms for low latency
+        input_params.suggestedLatency = 0.002; // 2ms for very low latency
         input_params.hostApiSpecificStreamInfo = null;
 
         // Setup output parameters for selected device
@@ -191,7 +192,7 @@ pub const RealtimeProcessor = struct {
         output_params.device = output_device;
         output_params.channelCount = 1; // Mono output
         output_params.sampleFormat = c.paFloat32;
-        output_params.suggestedLatency = 0.01; // 10ms for low latency
+        output_params.suggestedLatency = 0.002; // 2ms for very low latency
         output_params.hostApiSpecificStreamInfo = null;
 
         // Open stream with both input and output
@@ -201,7 +202,7 @@ pub const RealtimeProcessor = struct {
             &input_params,
             &output_params,
             @as(f64, @floatFromInt(sample_rate)),
-            256, // frames per buffer
+            @as(c_ulong, buffer_size), // frames per buffer (configurable)
             c.paClipOff,
             realtimeCallback,
             ctx,
