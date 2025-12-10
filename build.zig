@@ -83,6 +83,14 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Link PortAudio for real-time audio playback
+    exe.linkSystemLibrary("portaudio");
+    exe.linkLibC();
+    
+    // Add homebrew library path for macOS
+    exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
+    exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });
+
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
     // step). By default the install prefix is `zig-out/` but can be overridden

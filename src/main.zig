@@ -7,46 +7,49 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("Volt Core - Guitar Distortion POC\n", .{});
-    std.debug.print("==================================\n\n", .{});
+    std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
+    std.debug.print("============================================\n\n", .{});
 
-    // Create audio buffer for guitar signal
-    const sample_rate: u32 = 44100;
-    const duration_seconds: u32 = 2;
-    const sample_count = sample_rate * duration_seconds;
-    const channel_count: u32 = 2; // stereo
-
-    var audio_buffer = try volt_core.audio.AudioBuffer.init(
-        allocator,
-        @as(usize, sample_count),
-        channel_count,
-        sample_rate,
-    );
+    // Load guitar sample
+    const loader = volt_core.wav_loader.WAVLoader.init(allocator);
+    std.debug.print("Loading guitar sample: Electric Guitar 1 - Raw_105.wav\n", .{});
+    
+    var audio_buffer = loader.loadFile("Electric Guitar 1 - Raw_105.wav") catch |err| {
+        std.debug.print("Error loading file: {}\n", .{err});
+        return err;
+    };
     defer audio_buffer.deinit(allocator);
 
-    // Generate test guitar signal (440 Hz - A note)
-    std.debug.print("Generating guitar signal (440 Hz)...\n", .{});
-    audio_buffer.generateTestSignal(440.0);
+    std.debug.print("✓ Loaded: {d} samples at {d}Hz ({d} channels)\n", .{
+        audio_buffer.samples.len / audio_buffer.channel_count,
+        audio_buffer.sample_rate,
+        audio_buffer.channel_count,
+    });
 
-    // Create distortion effect with high drive
+    // Apply distortion effect
     var distortion = volt_core.effects.Distortion{
-        .drive = 3.0, // High distortion
-        .tone = 0.7,  // Warm tone
+        .drive = 2.5,  // Moderate-high distortion
+        .tone = 0.8,   // Warm tone
     };
 
-    std.debug.print("Applying distortion effect (drive: {d:.1}, tone: {d:.1})...\n", .{ distortion.drive, distortion.tone });
+    std.debug.print("\nApplying distortion (drive: {d:.1}, tone: {d:.1})...\n", .{ distortion.drive, distortion.tone });
     distortion.processBuffer(&audio_buffer);
 
-    // Write output to WAV file
-    const wav_writer = volt_core.wav.WAVWriter.init(allocator);
-    const output_file = "guitar_distorted.wav";
-    try wav_writer.writeBuffer(output_file, &audio_buffer);
+    // Play the processed audio
+    var player = try volt_core.audio_player.AudioPlayer.init(allocator);
+    defer player.deinit();
 
-    std.debug.print("✓ Output written to: {s}\n", .{output_file});
-    std.debug.print("✓ Sample rate: {d} Hz\n", .{sample_rate});
-    std.debug.print("✓ Duration: {d} seconds\n", .{duration_seconds});
-    std.debug.print("✓ Channels: {d}\n", .{channel_count});
+    std.debug.print("Starting playback...\n\n", .{});
+    try player.playBuffer(
+        audio_buffer.samples.ptr,
+        audio_buffer.samples.len / audio_buffer.channel_count,
+        audio_buffer.sample_rate,
+        audio_buffer.channel_count,
+    );
+
+    std.debug.print("\n✓ Playback complete!\n", .{});
 }
+
 
 test "simple test" {
     const gpa = std.testing.allocator;
