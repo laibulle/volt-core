@@ -392,7 +392,7 @@ pub const CoreAudioGraphDriver = struct {
                 &sample_rate_size,
                 &input_sample_rate,
             );
-            
+
             if (input_sample_rate != target_sample_rate) {
                 prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
                 err = c.AudioObjectSetPropertyData(
@@ -409,7 +409,7 @@ pub const CoreAudioGraphDriver = struct {
                     std.debug.print("✓ Set input device sample rate to {d:.0} Hz\n", .{target_sample_rate});
                 }
             }
-            
+
             // Now set buffer size
             prop_address.mSelector = kAudioDevicePropertyBufferFrameSize;
             err = c.AudioObjectSetPropertyData(
