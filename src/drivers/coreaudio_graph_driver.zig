@@ -346,9 +346,9 @@ pub const CoreAudioGraphDriver = struct {
             );
         }
 
-        std.debug.print("🎵 Output device sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
+        std.debug.print("🎵 Output device current sample rate: {d:.0} Hz (device 0x{x})\n", .{ device_sample_rate, driver.output_device_id });
 
-        // Use the requested sample rate from CLI
+        // Force the requested sample rate on the device
         const target_sample_rate: f64 = @floatFromInt(sample_rate);
         if (driver.output_device_id != 0 and device_sample_rate != target_sample_rate) {
             prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
@@ -361,11 +361,16 @@ pub const CoreAudioGraphDriver = struct {
                 @ptrCast(&target_sample_rate),
             );
             if (err != 0) {
-                std.debug.print("⚠️  Warning: Could not set output sample rate to {d}: error {d}\n", .{ target_sample_rate, err });
+                std.debug.print("⚠️  Warning: Could not change output sample rate to {d:.0} Hz: error {d}\n", .{ target_sample_rate, err });
+                std.debug.print("⚠️  Device may not support this rate. Using {d:.0} Hz instead.\n", .{device_sample_rate});
+                driver.sample_rate = device_sample_rate;
             } else {
-                std.debug.print("✓ Set output device sample rate to {d:.0} Hz\n", .{target_sample_rate});
+                std.debug.print("✓ Changed output device sample rate to {d:.0} Hz\n", .{target_sample_rate});
+                driver.sample_rate = target_sample_rate;
                 device_sample_rate = target_sample_rate;
             }
+        } else {
+            driver.sample_rate = device_sample_rate;
         }
 
         // Set device buffer size to 32 frames for low latency
@@ -391,9 +396,8 @@ pub const CoreAudioGraphDriver = struct {
             }
         }
 
-        // Also set input device buffer size
+        // Force input device to match output sample rate
         if (driver.input_device_id != 0) {
-            // Force input device sample rate to 44.1kHz FIRST
             var input_sample_rate: f64 = 0.0;
             _ = c.AudioObjectGetPropertyData(
                 driver.input_device_id,
@@ -403,6 +407,8 @@ pub const CoreAudioGraphDriver = struct {
                 &sample_rate_size,
                 &input_sample_rate,
             );
+
+            std.debug.print("🎵 Input device current sample rate: {d:.0} Hz (device 0x{x})\n", .{ input_sample_rate, driver.input_device_id });
 
             if (input_sample_rate != target_sample_rate) {
                 prop_address.mSelector = c.kAudioDevicePropertyNominalSampleRate;
@@ -415,9 +421,9 @@ pub const CoreAudioGraphDriver = struct {
                     @ptrCast(&target_sample_rate),
                 );
                 if (err != 0) {
-                    std.debug.print("⚠️  Warning: Could not set input sample rate to {d}: error {d}\n", .{ target_sample_rate, err });
+                    std.debug.print("⚠️  Warning: Could not change input sample rate to {d:.0} Hz: error {d}\n", .{ target_sample_rate, err });
                 } else {
-                    std.debug.print("✓ Set input device sample rate to {d:.0} Hz\n", .{target_sample_rate});
+                    std.debug.print("✓ Changed input device sample rate to {d:.0} Hz\n", .{target_sample_rate});
                 }
             }
 
@@ -684,15 +690,14 @@ pub const CoreAudioGraphDriver = struct {
     ) callconv(.c) c.OSStatus {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
-        // Debug: Count callbacks
-        driver.conv_state_pos += 1;
-        if (driver.conv_state_pos % 1500 == 0) { // ~31ms at 48kHz with 32-frame buffer
-            std.debug.print("Render callback called (count={}), frames: {}, bus: {}\n", .{ driver.conv_state_pos, in_number_frames, in_bus_number });
-        }
-
         // Only process the output bus
         if (in_bus_number != 0 or io_data == null or io_data.*.mNumberBuffers == 0) {
             return 0;
+        }
+
+        // Debug: Count callbacks (every 50 callbacks = ~1 second at 48kHz)
+        if ((driver.conv_state_pos / in_number_frames) % 1500 == 0) {
+            std.debug.print("Render callback called (frame={}), frames: {}, bus: {}\n", .{ driver.conv_state_pos, in_number_frames, in_bus_number });
         }
 
         // Get buffer info
@@ -702,6 +707,7 @@ pub const CoreAudioGraphDriver = struct {
         // Debug output on first callback
         if (driver.conv_state_pos < 2) {
             std.debug.print("🔍 Callback buffers: {d}, channels per buffer: {d}\n", .{ num_buffers, channels_per_buffer });
+            std.debug.print("🔍 Driver sample rate: {d:.0} Hz, frames per callback: {d}\n", .{ driver.sample_rate, in_number_frames });
         }
 
         // Get the buffer pointer
@@ -816,15 +822,29 @@ pub const CoreAudioGraphDriver = struct {
             max_output = @max(max_output, @abs(clamped));
         }
 
-        // For multi-channel buffers, duplicate mono signal to all channels
-        // With non-interleaved format, channels are sequential in memory
-        if (channels_per_buffer > 1) {
-            // Each channel has in_number_frames samples
-            for (1..channels_per_buffer) |ch| {
-                const offset = ch * in_number_frames;
-                @memcpy(audio_ptr[offset .. offset + in_number_frames], audio_out);
+        // The Audio Unit format says 8 channels, but we're receiving non-interleaved stereo
+        // (2 buffers, 1 channel each). This is because we requested 8ch but CoreAudio
+        // negotiated down to stereo for the actual callback.
+        //
+        // Since AudioBufferList is a variable-length C struct, we can't safely access
+        // mBuffers[1] without proper allocation. Instead, we check if the data size
+        // suggests multiple channels and handle accordingly.
+
+        const data_size = io_data.*.mBuffers[0].mDataByteSize;
+        const expected_mono_size = in_number_frames * @sizeOf(f32);
+
+        if (data_size > expected_mono_size) {
+            // Buffer contains multiple channels interleaved or sequential
+            const total_channels = data_size / expected_mono_size;
+            if (total_channels > 1) {
+                // Duplicate to all channels in the buffer
+                for (1..total_channels) |ch| {
+                    const offset = ch * in_number_frames;
+                    @memcpy(audio_ptr[offset .. offset + in_number_frames], audio_out);
+                }
             }
         }
+        // Note: If truly multi-buffer, CoreAudio will handle routing our mono to outputs
 
         return 0;
     }
