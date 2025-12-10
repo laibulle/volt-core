@@ -9,3 +9,9 @@ run-rt:
 
 run-list-devices:
 	zig build run -- --list-devices
+
+test:
+	@echo "Running effects port interface tests..."
+	@zig test src/ports/effects_test.zig
+	@echo ""
+	@echo "✓ All port interface tests passed!"
