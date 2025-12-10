@@ -15,3 +15,14 @@ test:
 	@zig test src/ports/effects_test.zig
 	@echo ""
 	@echo "✓ All port interface tests passed!"
+
+test-all:
+	@./test.sh
+
+build:
+	zig build
+
+clean:
+	rm -rf zig-cache zig-out
+
+.PHONY: run-sample run-rt-portaudio run-rt run-list-devices test test-all build clean
