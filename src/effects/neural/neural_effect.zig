@@ -146,6 +146,19 @@ pub const NeuralEffect = struct {
                 std.debug.print("[Neural] Warning: ONNX inference failed: {}\n", .{err});
             };
         }
+
+        // Prevent clipping by normalizing if peak exceeds 1.0
+        var peak_amp: f32 = 0.0;
+        for (buffer.samples) |sample| {
+            peak_amp = @max(peak_amp, @abs(sample));
+        }
+
+        if (peak_amp > 1.0) {
+            const scale = 0.95 / peak_amp;
+            for (0..buffer.samples.len) |i| {
+                buffer.samples[i] *= scale;
+            }
+        }
     }
 
     /// Set a parameter value
