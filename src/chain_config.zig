@@ -225,11 +225,12 @@ pub fn initChainFromJson(
                 }
             }
 
-            try chain.addEffect_with_deinit(
+            try chain.addEffect_with_buffer_fn(
                 effect_id,
                 &convolver_effect_mod.convolver_descriptor,
                 @ptrCast(conv),
                 @ptrCast(&ConvolverEffect.process),
+                @ptrCast(&ConvolverEffect.processBuffer),
                 convolver_deinit,
             );
         } else {

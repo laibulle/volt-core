@@ -16,6 +16,9 @@ pub const EffectSlot = struct {
     /// Process function for this effect
     process_fn: *const fn (self: *anyopaque, input: f32) f32,
 
+    /// Optional buffer process function (for effects that need full buffer at once)
+    process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void = null,
+
     /// Optional deinit function for the effect instance
     deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void = null,
 
@@ -45,11 +48,25 @@ pub const EffectSlot = struct {
         process_fn: *const fn (self: *anyopaque, input: f32) f32,
         deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
     ) !EffectSlot {
+        return init_with_buffer_fn(allocator, effect_id, descriptor, instance, process_fn, null, deinit_fn);
+    }
+
+    /// Initialize an effect slot with optional buffer process function
+    pub fn init_with_buffer_fn(
+        allocator: std.mem.Allocator,
+        effect_id: []const u8,
+        descriptor: *const ports.EffectDescriptor,
+        instance: *anyopaque,
+        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
+        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
+    ) !EffectSlot {
         var slot = EffectSlot{
             .effect_id = effect_id,
             .descriptor = descriptor,
             .instance = instance,
             .process_fn = process_fn,
+            .process_buffer_fn = process_buffer_fn,
             .deinit_fn = deinit_fn,
             .parameters = std.StringHashMap(f32).init(allocator),
         };
@@ -174,16 +191,30 @@ pub const EffectChain = struct {
         process_fn: *const fn (self: *anyopaque, input: f32) f32,
         deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
     ) !void {
+        return self.addEffect_with_buffer_fn(effect_id, descriptor, instance, process_fn, null, deinit_fn);
+    }
+
+    /// Add an effect with optional buffer process function
+    pub fn addEffect_with_buffer_fn(
+        self: *EffectChain,
+        effect_id: []const u8,
+        descriptor: *const ports.EffectDescriptor,
+        instance: *anyopaque,
+        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
+        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
+    ) !void {
         if (self.effect_count >= MAX_EFFECTS) {
             return error.ChainFull;
         }
 
-        const slot = try EffectSlot.init_with_deinit(
+        const slot = try EffectSlot.init_with_buffer_fn(
             self.allocator,
             effect_id,
             descriptor,
             instance,
             process_fn,
+            process_buffer_fn,
             deinit_fn,
         );
         self.slots[self.effect_count] = slot;
@@ -303,11 +334,32 @@ pub const EffectChain = struct {
 
     /// Process entire audio buffer through the effect chain
     pub fn processBuffer(self: *const EffectChain, buffer: *audio.AudioBuffer) void {
+        // First pass: apply buffer-level effects (e.g., convolver)
+        for (0..self.effect_count) |i| {
+            if (self.slots[i]) |slot| {
+                if (slot.process_buffer_fn) |process_buffer_fn| {
+                    process_buffer_fn(slot.instance, buffer);
+                }
+            }
+        }
+
+        // Second pass: apply sample-level effects (e.g., distortion)
         const sample_count = buffer.samples.len / buffer.channel_count;
         for (0..sample_count) |i| {
             for (0..buffer.channel_count) |ch| {
                 const sample_idx = i * buffer.channel_count + ch;
-                buffer.samples[sample_idx] = self.process(buffer.samples[sample_idx]);
+                var output = buffer.samples[sample_idx];
+
+                for (0..self.effect_count) |j| {
+                    if (self.slots[j]) |slot| {
+                        // Skip effects that have their own buffer processing
+                        if (slot.process_buffer_fn == null) {
+                            output = slot.process(output);
+                        }
+                    }
+                }
+
+                buffer.samples[sample_idx] = output;
             }
         }
     }
