@@ -3,7 +3,6 @@ const std = @import("std");
 /// NAM file format parser
 /// Neural Amp Modeler files contain serialized neural network models
 /// in a binary format with metadata and quantized weights
-
 pub const NAMMetadata = struct {
     name: []const u8,
     description: []const u8 = "",
@@ -16,10 +15,10 @@ pub const NAMMetadata = struct {
 pub const NAMModel = struct {
     metadata: NAMMetadata,
     allocator: std.mem.Allocator,
-    
+
     /// File path for reference
     file_path: []const u8,
-    
+
     /// Raw model data
     model_data: []u8,
 
@@ -70,7 +69,7 @@ pub fn loadNAMFile(allocator: std.mem.Allocator, file_path: []const u8) !NAMMode
 fn parseNAMMetadata(allocator: std.mem.Allocator, file_data: []const u8) !NAMMetadata {
     // NAM files are binary, but we can extract basic info from the filename and format
     // For now, we'll return a basic metadata structure with sensible defaults
-    
+
     var metadata = NAMMetadata{
         .name = try allocator.dupe(u8, "NAM Model"),
         .description = try allocator.dupe(u8, "Neural Amp Model"),
@@ -90,7 +89,7 @@ fn parseNAMMetadata(allocator: std.mem.Allocator, file_data: []const u8) !NAMMet
             allocator.free(metadata.description);
             allocator.free(metadata.date);
             allocator.free(metadata.creator);
-            
+
             metadata = parsed_metadata;
         } else |_| {
             // If JSON parsing fails, just use defaults
@@ -105,7 +104,7 @@ fn parseNAMJsonHeader(allocator: std.mem.Allocator, file_data: []const u8) !NAMM
     // Find the end of the JSON object (likely ends with })
     var json_end: usize = 0;
     var brace_count: i32 = 0;
-    
+
     for (0..file_data.len) |i| {
         if (file_data[i] == '{') {
             brace_count += 1;
@@ -216,7 +215,7 @@ test "load NAM file" {
     // This test requires an actual .nam file
     // For now, we'll create a mock test
     const mock_nam_data = "Mock NAM data";
-    
+
     _ = mock_nam_data;
     _ = allocator;
 }

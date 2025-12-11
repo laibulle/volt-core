@@ -42,12 +42,12 @@ pub const neural_descriptor: ports.EffectDescriptor = .{
 pub const NeuralEffect = struct {
     model: ?nam_loader.NAMModel = null,
     allocator: std.mem.Allocator,
-    
+
     // Processing parameters
     dry_wet: f32 = 1.0,
     input_gain: f32 = 0.0, // dB
     output_gain: f32 = 0.0, // dB
-    
+
     // Dry buffer for mixing
     dry_buffer: ?[]f32 = null,
     dry_buffer_size: usize = 0,
@@ -119,7 +119,7 @@ pub const NeuralEffect = struct {
         if (self.dry_wet < 1.0) {
             const wet_factor = self.dry_wet;
             const dry_factor = 1.0 - self.dry_wet;
-            
+
             for (0..buffer.samples.len) |i| {
                 buffer.samples[i] = buffer.samples[i] * wet_factor + self.dry_buffer.?[i] * dry_factor;
             }
@@ -136,7 +136,7 @@ pub const NeuralEffect = struct {
         // 1. Normalize input based on model training parameters
         // 2. Run ONNX Runtime inference
         // 3. Denormalize output
-        
+
         // TODO: Implement ONNX Runtime integration
         std.debug.print("Neural model processing: {s}\n", .{self.model.?.metadata.name});
         _ = buffer;
