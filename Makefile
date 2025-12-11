@@ -3,7 +3,7 @@ run-parse-kicad:
 	zig build run -- parse samples/kicad/WilsonFuzz.kicad_pcb samples/kicad/WilsonFuzz.json
 
 run-sample:
-	zig build run -- sample samples/guitar/ElectricGuitar1-Raw_105.wav config/neural_orange_amp.json
+	zig build run -- sample samples/guitar/smooth-electric-guitar-chord.wav config/neural_orange_amp.json
 
 run-rt-portaudio:
 	zig build run -- -rt --input-device 2 --output-device 2 --buffer-size 32 --sample-rate 44100  --chain ./config/neural_orange_amp.json
