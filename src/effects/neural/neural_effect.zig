@@ -143,6 +143,13 @@ pub const NeuralEffect = struct {
 
         const sample_count = buffer.samples.len;
 
+        // Pre-gain boost to ensure we hit the saturation zone
+        // This simulates the input stage of an amplifier
+        const pre_gain = 2.5; // Boost input signal
+        for (0..sample_count) |i| {
+            buffer.samples[i] *= pre_gain;
+        }
+
         // Apply soft-clipping saturation (neural networks learn this)
         for (0..sample_count) |i| {
             const sample = buffer.samples[i];
@@ -152,11 +159,33 @@ pub const NeuralEffect = struct {
             buffer.samples[i] = saturated;
         }
 
+        // Apply harmonic enhancement for more character
+        self.applyHarmonicEnhancement(buffer);
+
         // Apply subtle low-pass filtering for tone shaping
         self.applyLowPassFilter(buffer);
 
         // Apply light dynamic range compression
         self.applyCompression(buffer);
+    }
+
+    /// Add harmonic distortion for more character
+    fn applyHarmonicEnhancement(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
+        _ = self;
+        // Add 2nd harmonic (octave) for warmth and 3rd harmonic for character
+        const harmonic_2nd_amount = 0.15; // 2nd harmonic contribution
+        const harmonic_3rd_amount = 0.08; // 3rd harmonic contribution
+
+        for (0..buffer.samples.len) |i| {
+            const sample = buffer.samples[i];
+            // 2nd harmonic: square-wave like distortion
+            const harmonic_2nd = sample * sample;
+            // 3rd harmonic: cubic-like distortion
+            const harmonic_3rd = sample * sample * sample;
+
+            // Add harmonics to original signal
+            buffer.samples[i] = sample + (harmonic_2nd * harmonic_2nd_amount) + (harmonic_3rd * harmonic_3rd_amount);
+        }
     }
 
     /// Soft clipping function (tanh approximation)
@@ -166,17 +195,25 @@ pub const NeuralEffect = struct {
         // Use a smooth saturation curve
         // This is commonly learned by neural amp models
         const abs_sample = if (sample < 0) -sample else sample;
+        
+        // More aggressive clipping for high-gain amps
+        const hard_limit = 2.5;
+        const soft_start = 1.2;
 
-        if (abs_sample > 1.5) {
+        if (abs_sample > hard_limit) {
             // Hard limit for very loud signals
-            return if (sample < 0) -1.5 else 1.5;
-        } else if (abs_sample > 1.0) {
-            // Soft saturation region
-            const excess = abs_sample - 1.0;
-            const compressed = 1.0 + (0.5 * excess) / (1.0 + excess);
+            return if (sample < 0) -hard_limit else hard_limit;
+        } else if (abs_sample > soft_start) {
+            // Soft saturation region - logarithmic compression
+            const excess = abs_sample - soft_start;
+            const compressed = soft_start + (0.4 * excess) / (1.0 + excess);
             return if (sample < 0) -compressed else compressed;
+        } else if (abs_sample > 0.5) {
+            // Gentle saturation in the mid-range
+            const gentle_sat = 1.1 * abs_sample / (1.0 + 0.5 * (abs_sample - 0.5));
+            return if (sample < 0) -gentle_sat else gentle_sat;
         } else {
-            // Linear region
+            // Linear region for quiet signals
             return sample;
         }
     }
