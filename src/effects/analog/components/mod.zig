@@ -5,34 +5,34 @@ pub const common = @import("common.zig");
 pub const ComponentValue = common.ComponentValue;
 
 // Export resistor components
-pub const resistor = @import("resistor.zig");
+pub const resistor = @import("resistor/generic.zig");
 pub const Resistor = resistor.Resistor;
 pub const ResistorVariants = resistor.ResistorVariants;
 
 // Export capacitor components
-pub const capacitor = @import("capacitor.zig");
+pub const capacitor = @import("capacitor/generic.zig");
 pub const Capacitor = capacitor.Capacitor;
 pub const CapacitorVariants = capacitor.CapacitorVariants;
 
 // Export inductor components
-pub const inductor = @import("inductor.zig");
+pub const inductor = @import("inductor/generic.zig");
 pub const Inductor = inductor.Inductor;
 pub const InductorVariants = inductor.InductorVariants;
 
 // Export diode components
-pub const diode = @import("diode.zig");
+pub const diode = @import("diode/generic.zig");
 pub const DiodeParams = diode.DiodeParams;
 pub const Diode = diode.Diode;
 pub const DiodeModels = diode.DiodeModels;
 
 // Export opamp components
-pub const opamp = @import("opamp.zig");
+pub const opamp = @import("opamp/generic.zig");
 pub const OpAmpParams = opamp.OpAmpParams;
 pub const OpAmp = opamp.OpAmp;
 pub const OpAmpModels = opamp.OpAmpModels;
 
 // Export transistor components
-pub const transistor = @import("transistor.zig");
+pub const transistor = @import("transistor/generic.zig");
 pub const TransistorParams = transistor.TransistorParams;
 pub const Transistor = transistor.Transistor;
 pub const TransistorModels = transistor.TransistorModels;
