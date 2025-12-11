@@ -15,6 +15,9 @@ pub const EffectSlot = struct {
     /// Process function for this effect
     process_fn: *const fn (self: *anyopaque, input: f32) f32,
 
+    /// Optional deinit function for the effect instance
+    deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void = null,
+
     /// Current parameter values indexed by parameter name
     parameters: std.StringHashMap(f32),
 
@@ -29,11 +32,24 @@ pub const EffectSlot = struct {
         instance: *anyopaque,
         process_fn: *const fn (self: *anyopaque, input: f32) f32,
     ) !EffectSlot {
+        return init_with_deinit(allocator, effect_id, descriptor, instance, process_fn, null);
+    }
+
+    /// Initialize an effect slot with optional deinit callback
+    pub fn init_with_deinit(
+        allocator: std.mem.Allocator,
+        effect_id: []const u8,
+        descriptor: *const ports.EffectDescriptor,
+        instance: *anyopaque,
+        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
+    ) !EffectSlot {
         var slot = EffectSlot{
             .effect_id = effect_id,
             .descriptor = descriptor,
             .instance = instance,
             .process_fn = process_fn,
+            .deinit_fn = deinit_fn,
             .parameters = std.StringHashMap(f32).init(allocator),
         };
 
@@ -102,8 +118,14 @@ pub const EffectSlot = struct {
 
 /// Effect chain that manages multiple effects in sequence
 pub const EffectChain = struct {
+    /// Maximum number of effects in the chain
+    const MAX_EFFECTS = 16;
+
     /// List of effect slots
-    slots: std.ArrayList(EffectSlot),
+    slots: [MAX_EFFECTS]?EffectSlot = [_]?EffectSlot{null} ** MAX_EFFECTS,
+
+    /// Current number of effects
+    effect_count: usize = 0,
 
     /// Allocator for memory management
     allocator: std.mem.Allocator,
@@ -111,17 +133,24 @@ pub const EffectChain = struct {
     /// Initialize effect chain
     pub fn init(allocator: std.mem.Allocator) EffectChain {
         return EffectChain{
-            .slots = std.ArrayList(EffectSlot).init(allocator),
             .allocator = allocator,
         };
     }
 
     /// Deinitialize effect chain and all effects
     pub fn deinit(self: *EffectChain) void {
-        for (self.slots.items) |*slot| {
-            slot.deinit();
+        for (0..self.effect_count) |i| {
+            if (self.slots[i]) |*slot| {
+                // Free the effect ID string
+                self.allocator.free(slot.effect_id);
+                // Call deinit callback if present
+                if (slot.deinit_fn) |fn_ptr| {
+                    fn_ptr(self.allocator, slot.instance);
+                }
+                // Deinit parameters map
+                slot.deinit();
+            }
         }
-        self.slots.deinit();
     }
 
     /// Add an effect to the chain
@@ -132,40 +161,70 @@ pub const EffectChain = struct {
         instance: *anyopaque,
         process_fn: *const fn (self: *anyopaque, input: f32) f32,
     ) !void {
-        const slot = try EffectSlot.init(
+        return self.addEffect_with_deinit(effect_id, descriptor, instance, process_fn, null);
+    }
+
+    /// Add an effect to the chain with optional deinit callback
+    pub fn addEffect_with_deinit(
+        self: *EffectChain,
+        effect_id: []const u8,
+        descriptor: *const ports.EffectDescriptor,
+        instance: *anyopaque,
+        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
+    ) !void {
+        if (self.effect_count >= MAX_EFFECTS) {
+            return error.ChainFull;
+        }
+
+        const slot = try EffectSlot.init_with_deinit(
             self.allocator,
             effect_id,
             descriptor,
             instance,
             process_fn,
+            deinit_fn,
         );
-        try self.slots.append(slot);
+        self.slots[self.effect_count] = slot;
+        self.effect_count += 1;
     }
 
     /// Remove an effect at specific index
     pub fn removeEffect(self: *EffectChain, index: usize) bool {
-        if (index >= self.slots.items.len) return false;
-        var slot = self.slots.orderedRemove(index);
-        slot.deinit();
+        if (index >= self.effect_count) return false;
+        if (self.slots[index]) |*slot| {
+            slot.deinit();
+        }
+        // Shift remaining effects
+        for (index..self.effect_count - 1) |i| {
+            self.slots[i] = self.slots[i + 1];
+        }
+        self.slots[self.effect_count - 1] = null;
+        self.effect_count -= 1;
         return true;
     }
 
     /// Get number of effects in chain
     pub fn effectCount(self: *const EffectChain) usize {
-        return self.slots.items.len;
+        return self.effect_count;
     }
 
     /// Get effect at index
     pub fn getEffect(self: *EffectChain, index: usize) ?*EffectSlot {
-        if (index >= self.slots.items.len) return null;
-        return &self.slots.items[index];
+        if (index >= self.effect_count) return null;
+        if (self.slots[index]) |*slot| {
+            return slot;
+        }
+        return null;
     }
 
     /// Get effect by ID
     pub fn getEffectById(self: *EffectChain, effect_id: []const u8) ?*EffectSlot {
-        for (self.slots.items) |*slot| {
-            if (std.mem.eql(u8, slot.effect_id, effect_id)) {
-                return slot;
+        for (0..self.effect_count) |i| {
+            if (self.slots[i]) |*slot| {
+                if (std.mem.eql(u8, slot.effect_id, effect_id)) {
+                    return slot;
+                }
             }
         }
         return null;
@@ -178,8 +237,11 @@ pub const EffectChain = struct {
         param_name: []const u8,
         value: f32,
     ) !bool {
-        if (effect_index >= self.slots.items.len) return false;
-        return try self.slots.items[effect_index].setParameter(param_name, value);
+        if (effect_index >= self.effect_count) return false;
+        if (self.slots[effect_index]) |*slot| {
+            return try slot.setParameter(param_name, value);
+        }
+        return false;
     }
 
     /// Get parameter from specific effect
@@ -188,8 +250,11 @@ pub const EffectChain = struct {
         effect_index: usize,
         param_name: []const u8,
     ) ?f32 {
-        if (effect_index >= self.slots.items.len) return null;
-        return self.slots.items[effect_index].getParameter(param_name);
+        if (effect_index >= self.effect_count) return null;
+        if (self.slots[effect_index]) |slot| {
+            return slot.getParameter(param_name);
+        }
+        return null;
     }
 
     /// Set parameter on effect by ID
@@ -207,9 +272,12 @@ pub const EffectChain = struct {
 
     /// Enable/disable effect at index
     pub fn setEffectEnabled(self: *EffectChain, index: usize, enabled: bool) bool {
-        if (index >= self.slots.items.len) return false;
-        self.slots.items[index].setEnabled(enabled);
-        return true;
+        if (index >= self.effect_count) return false;
+        if (self.slots[index]) |*slot| {
+            slot.setEnabled(enabled);
+            return true;
+        }
+        return false;
     }
 
     /// Enable/disable effect by ID
@@ -224,29 +292,33 @@ pub const EffectChain = struct {
     /// Process audio through entire effect chain
     pub fn process(self: *const EffectChain, input: f32) f32 {
         var output = input;
-        for (self.slots.items) |slot| {
-            output = slot.process(output);
+        for (0..self.effect_count) |i| {
+            if (self.slots[i]) |slot| {
+                output = slot.process(output);
+            }
         }
         return output;
     }
 
     /// Get list of all effects metadata
     pub fn getEffectsInfo(self: *const EffectChain, allocator: std.mem.Allocator) ![]EffectInfo {
-        var infos = try allocator.alloc(EffectInfo, self.slots.items.len);
-        for (self.slots.items, 0..) |slot, i| {
-            var params = try allocator.alloc(ports.Parameter, slot.descriptor.available_parameters.len);
-            for (slot.descriptor.available_parameters, 0..) |param, j| {
-                params[j] = .{
-                    .name = param.name,
-                    .value = slot.parameters.get(param.name) orelse param.default_value,
+        var infos = try allocator.alloc(EffectInfo, self.effect_count);
+        for (0..self.effect_count) |i| {
+            if (self.slots[i]) |slot| {
+                var params = try allocator.alloc(ports.Parameter, slot.descriptor.available_parameters.len);
+                for (slot.descriptor.available_parameters, 0..) |param, j| {
+                    params[j] = .{
+                        .name = param.name,
+                        .value = slot.parameters.get(param.name) orelse param.default_value,
+                    };
+                }
+                infos[i] = .{
+                    .effect_id = slot.effect_id,
+                    .name = slot.descriptor.name,
+                    .enabled = slot.enabled,
+                    .parameters = params,
                 };
             }
-            infos[i] = .{
-                .effect_id = slot.effect_id,
-                .name = slot.descriptor.name,
-                .enabled = slot.enabled,
-                .parameters = params,
-            };
         }
         return infos;
     }

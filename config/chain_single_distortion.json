@@ -1,0 +1,12 @@
+{
+    "effects": [
+        {
+            "id": "distortion_1",
+            "type": "distortion",
+            "parameters": {
+                "drive": 2.5,
+                "tone": 0.7
+            }
+        }
+    ]
+}

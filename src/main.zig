@@ -18,6 +18,7 @@ pub fn main() !void {
     var output_device: i32 = -1; // -1 means use default
     var buffer_size: u32 = 128; // Default 128 frames
     var sample_rate: u32 = 44100; // Default 44.1kHz
+    var chain_config_file: ?[]const u8 = null; // Path to chain configuration JSON
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -57,6 +58,11 @@ pub fn main() !void {
                 sample_rate = requested_rate;
                 i += 1;
             }
+        } else if (std.mem.eql(u8, args[i], "--chain") or std.mem.eql(u8, args[i], "-c")) {
+            if (i + 1 < args.len) {
+                chain_config_file = args[i + 1];
+                i += 1;
+            }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
             std.debug.print("Usage: volt_core [options]\n", .{});
@@ -65,6 +71,7 @@ pub fn main() !void {
             std.debug.print("  --realtime, -rt                   Use real-time input (guitar input)\n", .{});
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
+            std.debug.print("  --chain, -c <file>                Load effect chain from JSON config file\n", .{});
             std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
             std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
             std.debug.print("                                    Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
@@ -76,6 +83,28 @@ pub fn main() !void {
 
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
+
+    // Load effect chain configuration if provided
+    if (chain_config_file) |config_file| {
+        std.debug.print("Loading effect chain from: {s}\n", .{config_file});
+
+        const file = std.fs.cwd().openFile(config_file, .{}) catch |err| {
+            std.debug.print("Error opening chain config file: {}\n", .{err});
+            return err;
+        };
+        defer file.close();
+
+        const json_content = try file.readToEndAlloc(allocator, 1024 * 1024);
+        defer allocator.free(json_content);
+
+        var chain = volt_core.chain_config.initChainFromJson(allocator, json_content) catch |err| {
+            std.debug.print("Error parsing chain config: {}\n", .{err});
+            return err;
+        };
+        defer chain.deinit();
+
+        try volt_core.chain_config.printChainConfig(&chain);
+    }
 
     // Select and initialize audio driver based on platform
     const SelectedDriver = volt_core.audio_driver.selectDriver();
