@@ -179,6 +179,7 @@ pub fn main() !void {
         return;
     }
 
+    // Only run command reaches here
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
 

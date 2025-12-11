@@ -40,7 +40,7 @@ pub fn printHelp() void {
     std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
     std.debug.print("Usage: volt_core <command> [options]\n\n", .{});
     std.debug.print("Commands:\n", .{});
-    std.debug.print("  run                                Run effect chain (default)\n", .{});
+    std.debug.print("  run <options>                      Run effect chain with real-time or sample input\n", .{});
     std.debug.print("  sample <path> <chain_config>       Test with sample audio file\n", .{});
     std.debug.print("  parse <kicad_file> <output.json>   Parse KiCAD file to intermediate JSON format\n\n", .{});
     std.debug.print("Run command options:\n", .{});
@@ -54,9 +54,10 @@ pub fn printHelp() void {
     std.debug.print("                                     Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
     std.debug.print("  --duration, -d <seconds>           Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
     std.debug.print("  --help, -h                         Show this help message\n\n", .{});
-    std.debug.print("Sample command examples:\n", .{});
+    std.debug.print("Examples:\n", .{});
+    std.debug.print("  volt_core run --chain config/neural_orange_amp.json --realtime\n", .{});
     std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/neural_orange_amp.json\n", .{});
-    std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/chain_single_distortion.json\n", .{});
+    std.debug.print("  volt_core parse samples/circuit.kicad config/output.json\n", .{});
 }
 
 /// Print error message for missing chain configuration
@@ -88,12 +89,12 @@ fn isSampleRateSupported(rate: u32) bool {
 }
 
 /// Parse command line arguments
-pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) !CliArgs {
+pub fn parse(_: std.mem.Allocator, args: []const []const u8) !CliArgs {
     var cli_args: CliArgs = .{};
 
     if (args.len < 2) {
         printHelp();
-        return cli_args;
+        std.process.exit(1);
     }
 
     // Check for help flag first
@@ -131,92 +132,98 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) !CliArgs {
         return cli_args;
     }
 
-    // Otherwise, parse run command arguments
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--realtime") or std.mem.eql(u8, args[i], "-rt")) {
-            cli_args.use_realtime = true;
-        } else if (std.mem.eql(u8, args[i], "--list-devices") or std.mem.eql(u8, args[i], "-ld")) {
-            cli_args.list_devices = true;
-        } else if (std.mem.eql(u8, args[i], "--duration") or std.mem.eql(u8, args[i], "-d")) {
-            if (i + 1 < args.len) {
-                cli_args.duration = std.fmt.parseFloat(f32, args[i + 1]) catch |err| {
-                    std.debug.print("Error: Failed to parse duration: {}\n", .{err});
-                    return CliError.InvalidFloatArgument;
-                };
-                i += 1;
-            } else {
-                std.debug.print("Error: --duration requires a value\n", .{});
-                return CliError.MissingArgumentValue;
-            }
-        } else if (std.mem.eql(u8, args[i], "--input-device")) {
-            if (i + 1 < args.len) {
-                cli_args.input_device = std.fmt.parseInt(i32, args[i + 1], 10) catch |err| {
-                    std.debug.print("Error: Failed to parse input device ID: {}\n", .{err});
-                    return CliError.InvalidIntegerArgument;
-                };
-                i += 1;
-            } else {
-                std.debug.print("Error: --input-device requires a value\n", .{});
-                return CliError.MissingArgumentValue;
-            }
-        } else if (std.mem.eql(u8, args[i], "--output-device")) {
-            if (i + 1 < args.len) {
-                cli_args.output_device = std.fmt.parseInt(i32, args[i + 1], 10) catch |err| {
-                    std.debug.print("Error: Failed to parse output device ID: {}\n", .{err});
-                    return CliError.InvalidIntegerArgument;
-                };
-                i += 1;
-            } else {
-                std.debug.print("Error: --output-device requires a value\n", .{});
-                return CliError.MissingArgumentValue;
-            }
-        } else if (std.mem.eql(u8, args[i], "--buffer-size") or std.mem.eql(u8, args[i], "-bs")) {
-            if (i + 1 < args.len) {
-                cli_args.buffer_size = std.fmt.parseUnsigned(u32, args[i + 1], 10) catch |err| {
-                    std.debug.print("Error: Failed to parse buffer size: {}\n", .{err});
-                    return CliError.InvalidIntegerArgument;
-                };
-                i += 1;
-            } else {
-                std.debug.print("Error: --buffer-size requires a value\n", .{});
-                return CliError.MissingArgumentValue;
-            }
-        } else if (std.mem.eql(u8, args[i], "--sample-rate") or std.mem.eql(u8, args[i], "-sr")) {
-            if (i + 1 < args.len) {
-                const requested_rate = std.fmt.parseUnsigned(u32, args[i + 1], 10) catch |err| {
-                    std.debug.print("Error: Failed to parse sample rate: {}\n", .{err});
-                    return CliError.InvalidIntegerArgument;
-                };
-
-                if (!isSampleRateSupported(requested_rate)) {
-                    printInvalidSampleRateError(requested_rate);
-                    return CliError.InvalidSampleRate;
+    // Check for run command
+    if (std.mem.eql(u8, args[1], "run")) {
+        cli_args.command = .run;
+        var i: usize = 2;
+        while (i < args.len) : (i += 1) {
+            if (std.mem.eql(u8, args[i], "--realtime") or std.mem.eql(u8, args[i], "-rt")) {
+                cli_args.use_realtime = true;
+            } else if (std.mem.eql(u8, args[i], "--list-devices") or std.mem.eql(u8, args[i], "-ld")) {
+                cli_args.list_devices = true;
+            } else if (std.mem.eql(u8, args[i], "--duration") or std.mem.eql(u8, args[i], "-d")) {
+                if (i + 1 < args.len) {
+                    cli_args.duration = std.fmt.parseFloat(f32, args[i + 1]) catch |err| {
+                        std.debug.print("Error: Failed to parse duration: {}\n", .{err});
+                        return CliError.InvalidFloatArgument;
+                    };
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --duration requires a value\n", .{});
+                    return CliError.MissingArgumentValue;
                 }
-                cli_args.sample_rate = requested_rate;
-                i += 1;
+            } else if (std.mem.eql(u8, args[i], "--input-device")) {
+                if (i + 1 < args.len) {
+                    cli_args.input_device = std.fmt.parseInt(i32, args[i + 1], 10) catch |err| {
+                        std.debug.print("Error: Failed to parse input device ID: {}\n", .{err});
+                        return CliError.InvalidIntegerArgument;
+                    };
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --input-device requires a value\n", .{});
+                    return CliError.MissingArgumentValue;
+                }
+            } else if (std.mem.eql(u8, args[i], "--output-device")) {
+                if (i + 1 < args.len) {
+                    cli_args.output_device = std.fmt.parseInt(i32, args[i + 1], 10) catch |err| {
+                        std.debug.print("Error: Failed to parse output device ID: {}\n", .{err});
+                        return CliError.InvalidIntegerArgument;
+                    };
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --output-device requires a value\n", .{});
+                    return CliError.MissingArgumentValue;
+                }
+            } else if (std.mem.eql(u8, args[i], "--buffer-size") or std.mem.eql(u8, args[i], "-bs")) {
+                if (i + 1 < args.len) {
+                    cli_args.buffer_size = std.fmt.parseUnsigned(u32, args[i + 1], 10) catch |err| {
+                        std.debug.print("Error: Failed to parse buffer size: {}\n", .{err});
+                        return CliError.InvalidIntegerArgument;
+                    };
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --buffer-size requires a value\n", .{});
+                    return CliError.MissingArgumentValue;
+                }
+            } else if (std.mem.eql(u8, args[i], "--sample-rate") or std.mem.eql(u8, args[i], "-sr")) {
+                if (i + 1 < args.len) {
+                    const requested_rate = std.fmt.parseUnsigned(u32, args[i + 1], 10) catch |err| {
+                        std.debug.print("Error: Failed to parse sample rate: {}\n", .{err});
+                        return CliError.InvalidIntegerArgument;
+                    };
+
+                    if (!isSampleRateSupported(requested_rate)) {
+                        printInvalidSampleRateError(requested_rate);
+                        return CliError.InvalidSampleRate;
+                    }
+                    cli_args.sample_rate = requested_rate;
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --sample-rate requires a value\n", .{});
+                    return CliError.MissingArgumentValue;
+                }
+            } else if (std.mem.eql(u8, args[i], "--chain") or std.mem.eql(u8, args[i], "-c")) {
+                if (i + 1 < args.len) {
+                    cli_args.chain_config_file = args[i + 1];
+                    i += 1;
+                } else {
+                    std.debug.print("Error: --chain requires a file path\n", .{});
+                    return CliError.MissingArgumentValue;
+                }
+            } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
+                printHelp();
+                std.process.exit(0);
             } else {
-                std.debug.print("Error: --sample-rate requires a value\n", .{});
-                return CliError.MissingArgumentValue;
+                std.debug.print("Error: Unknown argument '{s}'\n", .{args[i]});
+                std.debug.print("Use --help for usage information\n", .{});
+                return CliError.InvalidArgumentValue;
             }
-        } else if (std.mem.eql(u8, args[i], "--chain") or std.mem.eql(u8, args[i], "-c")) {
-            if (i + 1 < args.len) {
-                cli_args.chain_config_file = args[i + 1];
-                i += 1;
-            } else {
-                std.debug.print("Error: --chain requires a file path\n", .{});
-                return CliError.MissingArgumentValue;
-            }
-        } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
-            printHelp();
-            std.process.exit(0);
-        } else {
-            std.debug.print("Error: Unknown argument '{s}'\n", .{args[i]});
-            std.debug.print("Use --help for usage information\n", .{});
-            return CliError.InvalidArgumentValue;
         }
+        return cli_args;
     }
 
-    _ = allocator; // For now, we don't allocate anything, but keep for future use
-    return cli_args;
+    // Unknown command
+    std.debug.print("Error: Unknown command '{s}'\n\n", .{args[1]});
+    printHelp();
+    return CliError.InvalidArgumentValue;
 }
