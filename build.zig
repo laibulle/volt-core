@@ -93,12 +93,16 @@ pub fn build(b: *std.Build) void {
         exe.linkFramework("AudioToolbox");
         exe.linkFramework("Foundation");
         exe.linkSystemLibrary("portaudio");
+        exe.linkSystemLibrary("onnxruntime");
         exe.linkLibC();
         exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
         exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });
+        exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/onnxruntime/lib" });
+        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/onnxruntime/include" });
     } else if (target.result.os.tag == .linux) {
-        // Linux: Link PortAudio
+        // Linux: Link PortAudio and ONNX Runtime
         exe.linkSystemLibrary("portaudio");
+        exe.linkSystemLibrary("onnxruntime");
         exe.linkLibC();
         exe.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
         exe.addIncludePath(.{ .cwd_relative = "/usr/include" });
