@@ -97,14 +97,14 @@ pub fn loadNAMFile(allocator: std.mem.Allocator, file_path: []const u8) !NAMMode
         std.json.Value,
         allocator,
         file_data,
-        .{},
+        .{ .allocate = .alloc_if_needed },
     );
     defer parsed.deinit();
 
     const root = parsed.value.object;
 
     // Extract metadata
-    var model = NAMModel{
+    const model = NAMModel{
         .version = try allocator.dupe(u8, root.get("version").?.string),
         .metadata = try parseMetadata(allocator, root),
         .architecture = try allocator.dupe(u8, root.get("architecture").?.string),
@@ -118,6 +118,11 @@ pub fn loadNAMFile(allocator: std.mem.Allocator, file_path: []const u8) !NAMMode
 fn parseMetadata(allocator: std.mem.Allocator, root: std.json.ObjectMap) !NAMMetadata {
     const meta_obj = root.get("metadata").?.object;
 
+    var validation_esr: f32 = 0.0;
+    if (meta_obj.get("validation_esr")) |esr_val| {
+        validation_esr = @floatCast(esr_val.float);
+    }
+
     return NAMMetadata{
         .name = try allocator.dupe(u8, meta_obj.get("name").?.string),
         .modeled_by = try allocator.dupe(u8, meta_obj.get("modeled_by").?.string),
@@ -125,9 +130,9 @@ fn parseMetadata(allocator: std.mem.Allocator, root: std.json.ObjectMap) !NAMMet
         .gear_make = try allocator.dupe(u8, meta_obj.get("gear_make").?.string),
         .gear_model = try allocator.dupe(u8, meta_obj.get("gear_model").?.string),
         .tone_type = try allocator.dupe(u8, meta_obj.get("tone_type").?.string),
-        .loudness = @floatCast(meta_obj.get("loudness").?.number),
-        .gain = @floatCast(meta_obj.get("gain").?.number),
-        .validation_esr = @floatCast(meta_obj.get("validation_esr").?.number),
+        .loudness = @floatCast(meta_obj.get("loudness").?.float),
+        .gain = @floatCast(meta_obj.get("gain").?.float),
+        .validation_esr = validation_esr,
     };
 }
 
@@ -161,7 +166,7 @@ fn parseConfig(allocator: std.mem.Allocator, root: std.json.ObjectMap) !WaveNetC
     return WaveNetConfig{
         .layers = layers,
         .head = null,
-        .head_scale = @floatCast(config_obj.get("head_scale").?.number),
+        .head_scale = @floatCast(config_obj.get("head_scale").?.float),
     };
 }
 
@@ -170,7 +175,7 @@ fn parseWeights(allocator: std.mem.Allocator, root: std.json.ObjectMap) ![]f32 {
     var weights = try allocator.alloc(f32, weights_array.items.len);
 
     for (weights_array.items, 0..) |weight_json, i| {
-        weights[i] = @floatCast(weight_json.number);
+        weights[i] = @floatCast(weight_json.float);
     }
 
     return weights;
