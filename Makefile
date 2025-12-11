@@ -5,10 +5,14 @@ run-sample:
 	zig build run -- --chain config/chain_three_stage.json
 
 run-rt-portaudio:
-	zig build run -- -rt --input-device 2 --output-device 2 --buffer-size 32
+	zig build run -- -rt --input-device 2 --output-device 2 --buffer-size 32 --sample-rate 44100  --chain ./config/neural_orange_amp.json
 
 run-rt:
 	zig build run -- -rt --input-device 2 --output-device 2 --buffer-size 32 --sample-rate 44100  --chain config/chain_three_stage.json
+
+
+run-rt-neural:
+	zig build run -- -rt --input-device 2 --output-device 2 --buffer-size 32 --sample-rate 44100  --chain ./config/neural_orange_amp.json
 
 run-list-devices:
 	zig build run -- --list-devices
