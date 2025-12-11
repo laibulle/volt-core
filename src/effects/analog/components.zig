@@ -87,6 +87,12 @@ pub const ComponentValue = struct {
     }
 };
 
+/// ============================================================================
+/// PARAMETRIZED GENERIC COMPONENTS
+/// ============================================================================
+/// Each component type is generic and parametrized. Specific variants are
+/// created by instantiating with specific parameters.
+
 /// Resistor component with signal transformation
 pub const Resistor = struct {
     resistance: f32, // in ohms

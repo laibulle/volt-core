@@ -1,32 +1,24 @@
 # AnalogLoader Documentation Index
 
-Welcome! This is your guide to the AnalogLoader analog circuit emulation system.
+Welcome! This is your guide to the AnalogLoader analog circuit emulation system with parametrized components.
 
-## Quick Navigation
+## Quick Navigation - Parametrized Component System
 
-### 👤 I'm a New User - Start Here
-1. **[QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes
-2. **[README.md](README.md)** - API reference and basic usage
+### 🚀 New: Parametrized Components (5 minutes)
+1. **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - One-page cheatsheet ⭐ START HERE
+2. **[PARAMETRIZED_COMPONENTS.md](PARAMETRIZED_COMPONENTS.md)** - Architecture explained
+3. **[PARAMETRIZED_SYSTEM_SUMMARY.md](PARAMETRIZED_SYSTEM_SUMMARY.md)** - Overview & status
 
-### 🏗️ I Want to Understand the Design
-1. **[DESIGN_COMPLETE.md](DESIGN_COMPLETE.md)** - Complete overview (THIS IS THE MAIN DOCUMENT)
-2. **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed component architecture
-3. **[CIRCUIT_FORMAT.md](CIRCUIT_FORMAT.md)** - How data flows through the system
-4. **[INTERNAL_FORMAT.md](INTERNAL_FORMAT.md)** - Runtime optimization details
+### 🔧 Building Circuits (30+ minutes)
+1. **[CIRCUIT_EXAMPLES.md](CIRCUIT_EXAMPLES.md)** - Real circuits (Fuzz Face, Tone Stack, Overdrive)
+2. **[ADDING_COMPONENTS.md](ADDING_COMPONENTS.md)** - How to extend the system
+3. **[components_v2.zig](components_v2.zig)** - Full source code
 
-### 💻 I Want to Extend/Modify
-1. **[DESIGN_COMPLETE.md](DESIGN_COMPLETE.md)** - Complete architecture
-2. **[INTERNAL_FORMAT.md](INTERNAL_FORMAT.md)** - Data structures
-3. Source code comments in respective `.zig` files
-
-### 📚 I Want Everything
-Read in this order:
-1. QUICKSTART.md (5 min)
-2. DESIGN_COMPLETE.md (10 min)
-3. ARCHITECTURE.md (15 min)
-4. CIRCUIT_FORMAT.md (10 min)
-5. INTERNAL_FORMAT.md (10 min)
-6. README.md (reference as needed)
+### 📖 Original AnalogLoader Documentation
+- **[QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes
+- **[README.md](README.md)** - API reference
+- **[DESIGN_COMPLETE.md](DESIGN_COMPLETE.md)** - Complete overview
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed architecture
 
 ## File Structure
 
