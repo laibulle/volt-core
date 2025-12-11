@@ -29,7 +29,7 @@ pub const circuit_format = @import("circuit_format.zig");
 pub const kicad_parser = @import("kicad_parser.zig");
 pub const circuit_simulator = @import("circuit_simulator.zig");
 pub const analog_effect = @import("analog_effect.zig");
-pub const components = @import("components.zig");
+pub const components = @import("components/mod.zig");
 pub const component_library = @import("component_library.zig");
 
 pub const AnalogLoader = analog_effect.AnalogLoader;
