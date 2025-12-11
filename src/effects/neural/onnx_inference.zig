@@ -121,8 +121,8 @@ pub const WaveNetInference = struct {
             self.layer_histories.?[i] = try self.allocator.alloc(f32, history_size);
             @memset(self.layer_histories.?[i], 0);
 
-            // Calculate weights per layer: dilations * kernel_size * channels
-            const weights_for_layer = layer.dilations.len * layer.kernel_size * layer.channels;
+            // Calculate weights per layer: dilations * kernel_size * input_channels * output_channels
+            const weights_for_layer = layer.dilations.len * layer.kernel_size * layer.input_size * layer.channels;
             weight_offset += weights_for_layer;
 
             std.debug.print("[WaveNet]   Layer {d}: {d}→{d} channels, history size {d}, weights {d}-{d}\n", .{ i, layer.input_size, layer.channels, history_size, self.layer_weight_offsets.?[i], weight_offset });
@@ -140,15 +140,12 @@ pub const WaveNetInference = struct {
         }
 
         const model = self.model.?;
-        // Note: gain and loudness are metadata about the model's output level
-        // loudness is the ESR (Error-to-Signal Ratio) measurement - NOT a gain to apply
-        // gain_linear represents the model's inherent gain, should be applied to output
         const output_gain = std.math.pow(f32, 10.0, model.metadata.gain / 20.0);
 
         // Process each sample through the WaveNet
         for (input, 0..) |sample, i| {
             if (i < output.len) {
-                // Process sample through all layers
+                // Process sample through all layers sequentially
                 var processed = sample;
 
                 // Process through each layer
@@ -156,7 +153,7 @@ pub const WaveNetInference = struct {
                     processed = try self.processLayer(layer_idx, processed, layer);
                 }
 
-                // Apply output gain (not loudness - that's just a quality metric)
+                // Apply output gain
                 output[i] = processed * output_gain;
             }
         }
@@ -188,13 +185,12 @@ pub const WaveNetInference = struct {
                     history_sample = input;
                 }
 
-                // Get weight for this position using proper layer-based indexing
-                // Weight layout: for each dilation, for each kernel position, for each channel
-                const weight_idx = layer_offset + (dil_idx * layer.kernel_size * layer.channels) + (k * layer.channels);
+                // Get weight - simple sequential indexing
+                const weight_idx = layer_offset + (dil_idx * layer.kernel_size) + k;
 
-                // Clamp to valid range
-                const safe_weight_idx = if (weight_idx < model.weights.len) weight_idx else model.weights.len - 1;
-                output += history_sample * model.weights[safe_weight_idx];
+                if (weight_idx < model.weights.len) {
+                    output += history_sample * model.weights[weight_idx];
+                }
             }
         }
 
@@ -202,7 +198,6 @@ pub const WaveNetInference = struct {
         const activated = self.tanh(output);
 
         // Update history buffer with new output
-        // Shift history and add new sample
         if (history.len > 0) {
             for (0..history.len - 1) |j| {
                 history[j] = history[j + 1];
