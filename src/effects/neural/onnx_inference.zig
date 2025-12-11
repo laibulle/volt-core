@@ -2,6 +2,51 @@ const std = @import("std");
 const nam_parser = @import("nam_parser.zig");
 
 // ============================================================================
+// Multi-channel History Buffer Helper
+// ============================================================================
+
+/// Multi-channel history buffer for a single layer
+const LayerHistory = struct {
+    /// [channel][history_len] - history for each output channel
+    buffers: ?[][]f32 = null,
+    channels: usize = 0,
+    history_len: usize = 0,
+
+    pub fn init(allocator: std.mem.Allocator, channels: usize, history_len: usize) !LayerHistory {
+        const buffers = try allocator.alloc([]f32, channels);
+        for (buffers) |*buf| {
+            buf.* = try allocator.alloc(f32, history_len);
+            @memset(buf.*, 0);
+        }
+        return LayerHistory{
+            .buffers = buffers,
+            .channels = channels,
+            .history_len = history_len,
+        };
+    }
+
+    pub fn deinit(self: *LayerHistory, allocator: std.mem.Allocator) void {
+        if (self.buffers) |buffers| {
+            for (buffers) |buf| {
+                allocator.free(buf);
+            }
+            allocator.free(buffers);
+        }
+    }
+
+    pub fn shift_and_add(self: *LayerHistory, channel: usize, sample: f32) void {
+        if (self.buffers) |buffers| {
+            if (channel < buffers.len and buffers[channel].len > 0) {
+                for (0..buffers[channel].len - 1) |j| {
+                    buffers[channel][j] = buffers[channel][j + 1];
+                }
+                buffers[channel][buffers[channel].len - 1] = sample;
+            }
+        }
+    }
+};
+
+// ============================================================================
 // WaveNet Neural Network Inference Engine
 // Processes audio through NAM models using dilated causal convolutions
 // ============================================================================
