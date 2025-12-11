@@ -165,9 +165,9 @@ pub fn main() !void {
     } else {
         // Load guitar sample (existing behavior)
         const loader = volt_core.wav_loader.WAVLoader.init(allocator);
-        std.debug.print("Loading: samples/ElectricGuitar1-Raw_105.wav\n", .{});
+        std.debug.print("Loading: samples/Untitled.wav\n", .{});
 
-        var audio_buffer = loader.loadFile("samples/ElectricGuitar1-Raw_105.wav") catch |err| {
+        var audio_buffer = loader.loadFile("samples/Untitled.wav") catch |err| {
             std.debug.print("Error loading file: {}\n", .{err});
             return err;
         };
