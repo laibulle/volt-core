@@ -7,6 +7,9 @@ pub const Distortion = distortion.Distortion;
 pub const convolver = @import("effects/convolver/convolver.zig");
 pub const Convolver = convolver.Convolver;
 
+pub const convolver_effect = @import("effects/convolver/convolver_effect.zig");
+pub const ConvolverEffect = convolver_effect.Convolver;
+
 /// Effect chain for processing audio through multiple effects
 pub const EffectChain = struct {
     effects: std.ArrayList(*const anyopaque),

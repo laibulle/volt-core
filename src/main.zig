@@ -91,25 +91,6 @@ pub fn main() !void {
         std.debug.print("✓ Applying effect chain ({d} effects)...\n", .{chain.effectCount()});
         chain.processBuffer(&audio_buffer);
 
-        // Load impulse response (cabinet simulation)
-        const ir_loader = volt_core.ir_loader.IRLoader.init(allocator);
-        std.debug.print("Loading: samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav\n", .{});
-
-        var ir_buffer = ir_loader.loadFile("samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav") catch |err| {
-            std.debug.print("Error loading IR: {}\n", .{err});
-            return err;
-        };
-        defer ir_buffer.deinit(allocator);
-
-        std.debug.print("✓ Loaded IR: {d} samples\n", .{ir_buffer.samples.len});
-
-        // Apply convolver (cabinet emulation)
-        var convolver = try volt_core.effects.Convolver.init(allocator, ir_buffer);
-        defer convolver.deinit();
-
-        std.debug.print("✓ Applying cabinet convolution...\n", .{});
-        convolver.processBuffer(&audio_buffer);
-
         // Play the processed audio
         var player = try volt_core.audio_player.AudioPlayer.init(allocator);
         defer player.deinit();

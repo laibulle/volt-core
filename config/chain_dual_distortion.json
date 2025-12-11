@@ -15,6 +15,14 @@
                 "drive": 1.0,
                 "tone": 0.8
             }
+        },
+        {
+            "id": "cabinet",
+            "type": "convolver",
+            "parameters": {
+                "ir_path": "samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav",
+                "dry_wet": 1.0
+            }
         }
     ]
 }
