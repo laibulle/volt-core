@@ -2,6 +2,10 @@ run-parse-kicad:
 	rm -f samples/kicad/WilsonFuzz.json
 	zig build run -- parse samples/kicad/WilsonFuzz.kicad_pcb samples/kicad/WilsonFuzz.json
 
+run-sample-5150:
+	zig build run -- sample samples/guitar/electric-guitar-chords-cheerful-chords_75bpm_C_major.wav config/neural_5150.json
+
+
 run-sample-jcm800:
 	zig build run -- sample samples/guitar/electric-guitar-chords-cheerful-chords_75bpm_C_major.wav config/neural_jcm_800.json
 

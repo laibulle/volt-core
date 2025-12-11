@@ -1,0 +1,15 @@
+{
+    "name": "Pevey 5150 Neural Model",
+    "description": "Effect chain with only the Pevey 5150 neural model",
+    "effects": [
+        {
+            "id": "jcm800_neural",
+            "type": "neural",
+            "parameters": {
+                "model_path": "samples/neural/EVH 5150Iconic80W-Channel2.nam",
+                "input_gain": 0.0,
+                "output_gain": 0.0
+            }
+        }
+    ]
+}
