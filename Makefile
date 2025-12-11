@@ -11,6 +11,8 @@ run-list-devices:
 	zig build run -- --list-devices
 
 test:
+	zig build test-parser
+	zig build test-wilson
 	zig build test
 
 build:
