@@ -126,8 +126,8 @@ pub const ComponentLibrary = struct {
     // Statistics
     pub fn componentCount(self: ComponentLibrary) usize {
         return self.resistors.items.len + self.capacitors.items.len +
-               self.inductors.items.len + self.diodes.items.len +
-               self.opamps.items.len + self.transistors.items.len;
+            self.inductors.items.len + self.diodes.items.len +
+            self.opamps.items.len + self.transistors.items.len;
     }
 
     pub fn resistorCount(self: ComponentLibrary) usize {
@@ -269,7 +269,7 @@ pub const CircuitPresets = struct {
         _ = try lib.addResistor(100000.0); // 100k collector load
         _ = try lib.addCapacitor(10e-9); // 10n coupling
 
-        // Second transistor stage  
+        // Second transistor stage
         _ = try lib.addTransistor(.npn, 200.0);
         _ = try lib.addResistor(100000.0); // 100k collector load
 

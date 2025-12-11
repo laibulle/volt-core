@@ -12,8 +12,8 @@ pub const CliError = error{
 
 /// Command type
 pub const Command = enum {
-    run,      // Run effect chain (default)
-    parse,    // Parse KiCAD file to intermediate format
+    run, // Run effect chain (default)
+    parse, // Parse KiCAD file to intermediate format
 };
 
 /// Parsed CLI arguments
@@ -27,8 +27,8 @@ pub const CliArgs = struct {
     buffer_size: u32 = 128,
     sample_rate: u32 = 44100,
     chain_config_file: ?[]const u8 = null,
-    kicad_file: ?[]const u8 = null,        // For parse command
-    output_file: ?[]const u8 = null,       // For parse command
+    kicad_file: ?[]const u8 = null, // For parse command
+    output_file: ?[]const u8 = null, // For parse command
 };
 
 /// Supported sample rates

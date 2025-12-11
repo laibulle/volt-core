@@ -1,3 +1,6 @@
+run-parse-kicad:
+	rm -f samples/kicad/WilsonFuzz.json
+	zig build run -- parse samples/kicad/WilsonFuzz.kicad_pcb samples/kicad/WilsonFuzz.json
 run-sample:
 	zig build run -- --chain config/chain_three_stage.json
 

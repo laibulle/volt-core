@@ -26,11 +26,8 @@ fn handleParseCommand(allocator: std.mem.Allocator, cli_args: volt_core.cli.CliA
     defer allocator.free(content);
 
     // Create intermediate format circuit
-    var circuit = try volt_core.analog.circuit_format.InternalCircuit.init(
-        allocator,
-        "parsed_circuit",
-        10,  // estimated node count
-        20   // estimated component count
+    var circuit = try volt_core.analog.circuit_format.InternalCircuit.init(allocator, "parsed_circuit", 10, // estimated node count
+        20 // estimated component count
     );
     defer circuit.deinit();
 
