@@ -2,7 +2,7 @@ const std = @import("std");
 
 // ============================================================================
 // ONNX Runtime Inference Engine (Placeholder)
-// 
+//
 // Full ONNX Runtime integration requires either:
 // 1. Comprehensive C API bindings from onnxruntime_c_api.h
 // 2. Using libonnxruntime through a wrapper library
@@ -19,7 +19,7 @@ pub const ONNXInference = struct {
 
     pub fn init(allocator: std.mem.Allocator) !ONNXInference {
         std.debug.print("[ONNX] Inference engine initialized (placeholder mode)\n", .{});
-        
+
         return ONNXInference{
             .allocator = allocator,
             .initialized = true,
