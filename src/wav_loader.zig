@@ -103,16 +103,16 @@ pub const WAVLoader = struct {
                 read_count = file.read(&sample_buf) catch break;
                 if (read_count < 3) break;
 
-                // Convert 24-bit to 32-bit signed integer
-                var int_sample: i32 = 0;
-                if (sample_buf[2] & 0x80 != 0) {
-                    // Negative number - sign extend
-                    int_sample = @as(i32, sample_buf[2]) << 24 | @as(i32, sample_buf[1]) << 16 | @as(i32, sample_buf[0]) << 8;
-                } else {
-                    // Positive number
-                    int_sample = @as(i32, sample_buf[2]) << 24 | @as(i32, sample_buf[1]) << 16 | @as(i32, sample_buf[0]) << 8;
+                // Convert 24-bit little-endian to 32-bit signed integer
+                var int_sample: i32 = @as(i32, sample_buf[0]) | 
+                                      (@as(i32, sample_buf[1]) << 8) | 
+                                      (@as(i32, sample_buf[2]) << 16);
+                
+                // Sign extend if MSB is set (bit 23)
+                if (int_sample & 0x800000 != 0) {
+                    int_sample = @as(i32, @bitCast(@as(u32, @bitCast(int_sample)) | 0xFF000000));
                 }
-                int_sample = int_sample >> 8; // Shift back to get 24-bit value
+                
                 const f_sample = @as(f32, @floatFromInt(int_sample)) / 8388608.0;
                 buffer.samples[sample_i] = f_sample;
                 sample_i += 1;
