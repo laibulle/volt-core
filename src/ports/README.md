@@ -43,29 +43,33 @@ try driver.startProcessing(input_dev, output_dev, buffer_size, sample_rate, dura
 
 ### Effects Port (`effects.zig`)
 
-Defines interfaces for audio effect processors.
+Defines interfaces for audio effect processors using buffer-level processing.
 
 **Interfaces:**
-- `EffectProcessor` - Single-sample processing interface
+- `EffectProcessor` - Buffer-level processing interface
 - `AudioBuffer` - Multi-channel buffer for batch processing
 
 **Implementations:**
-- `src/effects/distortions/distortion.zig` - Soft-clipping distortion
-- `src/effects/convolution/convolution.zig` - Convolution reverb/cabinet simulation
+- `src/effects/distortions/distortion.zig` - Soft-clipping distortion with tone control
+- `src/effects/convolver/convolver.zig` - Convolution reverb/cabinet simulation (direct convolution)
 
 **Usage:**
 ```zig
 const effects_port = @import("ports/effects.zig");
 
-// Single sample processing
-const output = effect.process(input_sample);
-
-// Buffer processing
+// Create an audio buffer
 var buffer = effects_port.AudioBuffer{
     .samples = audio_data,
     .channel_count = 2,
     .sample_rate = 48000,
 };
+
+// Process entire buffer through effect
+effect.processBuffer(&buffer);
+
+// Access individual samples if needed
+const sample = buffer.getSample(frame, channel);
+buffer.setSample(frame, channel, processed_value);
 ```
 
 ## Design Principles

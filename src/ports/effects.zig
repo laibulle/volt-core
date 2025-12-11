@@ -1,4 +1,5 @@
 const std = @import("std");
+const audio = @import("../audio.zig");
 
 /// Parameter type definitions
 pub const ParameterType = enum {
@@ -49,11 +50,10 @@ pub const EffectDescriptor = struct {
 /// This defines the contract for audio effect processors.
 /// Effect implementations should be placed in src/effects/ folder.
 pub const EffectProcessor = struct {
-    /// Process a single audio sample
+    /// Process audio buffer through the effect
     /// @param self - Pointer to the effect instance
-    /// @param input - Input sample value (typically -1.0 to 1.0)
-    /// @return Processed output sample
-    process_fn: *const fn (self: *anyopaque, input: f32) f32,
+    /// @param buffer - Audio buffer to process
+    process_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
 
     /// Effect instance data
     instance: *anyopaque,
@@ -64,9 +64,9 @@ pub const EffectProcessor = struct {
     /// Current parameter values
     parameter_values: std.StringHashMap(f32),
 
-    /// Process a single sample through this effect
-    pub fn process(self: *const EffectProcessor, input: f32) f32 {
-        return self.process_fn(self.instance, input);
+    /// Process audio buffer through this effect
+    pub fn processBuffer(self: *const EffectProcessor, buffer: *audio.AudioBuffer) void {
+        self.process_fn(self.instance, buffer);
     }
 };
 
