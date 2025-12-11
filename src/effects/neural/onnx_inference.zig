@@ -46,6 +46,26 @@ const LayerHistory = struct {
     }
 };
 
+/// Layer output buffer for passing data between layers
+const LayerOutput = struct {
+    /// [channel] - one output value per channel from current layer inference
+    samples: ?[]f32 = null,
+    channels: usize = 0,
+
+    pub fn init(allocator: std.mem.Allocator, channels: usize) !LayerOutput {
+        return LayerOutput{
+            .samples = try allocator.alloc(f32, channels),
+            .channels = channels,
+        };
+    }
+
+    pub fn deinit(self: *LayerOutput, allocator: std.mem.Allocator) void {
+        if (self.samples) |samples| {
+            allocator.free(samples);
+        }
+    }
+};
+
 // ============================================================================
 // WaveNet Neural Network Inference Engine
 // Processes audio through NAM models using dilated causal convolutions
