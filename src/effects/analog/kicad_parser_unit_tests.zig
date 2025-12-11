@@ -2,7 +2,7 @@ const std = @import("std");
 
 test "parse minimal kicad content" {
     const content = "(kicad_pcb (version 20240108) (footprint \"R_Axial\" (property \"Reference\" \"R1\") (property \"Value\" \"10k\")))";
-    
+
     // Just verify the content is valid S-expression
     var paren_count: i32 = 0;
     for (content) |ch| {
@@ -14,7 +14,7 @@ test "parse minimal kicad content" {
 
 test "extract reference from property line" {
     const line = "(property \"Reference\" \"R1\")";
-    
+
     // Find the Reference property
     if (std.mem.indexOf(u8, line, "\"Reference\"")) |pos| {
         const after_ref = line[pos + 11 ..];
@@ -30,7 +30,7 @@ test "extract reference from property line" {
 
 test "extract value from property line" {
     const line = "(property \"Value\" \"10k\")";
-    
+
     // Find the Value property
     if (std.mem.indexOf(u8, line, "\"Value\"")) |pos| {
         const after_val = line[pos + 7 ..];
@@ -75,7 +75,7 @@ test "classify component by reference prefix" {
 
 test "parse resistor value string" {
     const values = [_][]const u8{ "10", "100", "1k", "10k", "100k", "1M" };
-    
+
     for (values) |val| {
         // Verify we can find numeric part
         var has_digit = false;
@@ -95,7 +95,7 @@ test "wilson fuzz component parsing expectations" {
     const expected_resistors = 7;
     const expected_capacitors = 4;
     const expected_transistors = 2;
-    
+
     // Verify our expectations are reasonable
     try std.testing.expect(expected_count > 0);
     try std.testing.expect(expected_resistors + expected_capacitors + expected_transistors <= expected_count);
@@ -105,17 +105,17 @@ test "wilson fuzz component parsing expectations" {
 test "validate kicad file format signature" {
     const valid_header = "(kicad_pcb";
     const invalid_header = "(kicad_sch";
-    
+
     const is_pcb = std.mem.startsWith(u8, valid_header, "(kicad_pcb");
     const is_not_pcb = std.mem.startsWith(u8, invalid_header, "(kicad_pcb");
-    
+
     try std.testing.expect(is_pcb);
     try std.testing.expect(!is_not_pcb);
 }
 
 test "parse property structure" {
     const prop = "(property \"Reference\" \"R1\")";
-    
+
     // Count parentheses
     var open_count: usize = 0;
     var close_count: usize = 0;
@@ -123,7 +123,7 @@ test "parse property structure" {
         if (ch == '(') open_count += 1;
         if (ch == ')') close_count += 1;
     }
-    
+
     try std.testing.expectEqual(open_count, close_count);
     try std.testing.expectEqual(@as(usize, 1), open_count);
 }
