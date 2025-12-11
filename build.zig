@@ -158,12 +158,49 @@ pub fn build(b: *std.Build) void {
     // A run step that will run the second test executable.
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
+    // KiCAD Parser Unit Tests (standalone, no dependencies)
+    const kicad_parser_unit_tests = b.createModule(.{
+        .root_source_file = b.path("src/effects/analog/kicad_parser_unit_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const kicad_parser_test_exe = b.addTest(.{
+        .root_module = kicad_parser_unit_tests,
+    });
+
+    const run_kicad_parser_tests = b.addRunArtifact(kicad_parser_test_exe);
+
+    // Wilson Fuzz Circuit Parser Test (executable, not test module)
+    const wilson_test_module = b.createModule(.{
+        .root_source_file = b.path("src/effects/analog/wilson_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const wilson_test_exe = b.addExecutable(.{
+        .name = "wilson_test",
+        .root_module = wilson_test_module,
+    });
+
+    const run_wilson_test = b.addRunArtifact(wilson_test_exe);
+    b.installArtifact(wilson_test_exe);
+
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the two run steps do not depend on one another, this will
     // make the two of them run in parallel.
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
+    test_step.dependOn(&run_kicad_parser_tests.step);
+
+    // Parser-specific test step
+    const parser_test_step = b.step("test-parser", "Run KiCAD parser tests");
+    parser_test_step.dependOn(&run_kicad_parser_tests.step);
+
+    // Wilson circuit test step
+    const wilson_test_step = b.step("test-wilson", "Run Wilson Fuzz circuit parser test");
+    wilson_test_step.dependOn(&run_wilson_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
