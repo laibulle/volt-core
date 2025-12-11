@@ -1,6 +1,46 @@
 const std = @import("std");
 const volt_core = @import("volt_core");
 
+/// Parse a component value string (e.g., "10k", "100n") to a float
+fn parseComponentValue(value_str: []const u8) !f32 {
+    var buf: [64]u8 = undefined;
+
+    // Convert to lowercase for easier processing
+    for (value_str, 0..) |c, i| {
+        if (i < buf.len) {
+            buf[i] = std.ascii.toLower(c);
+        }
+    }
+
+    const lower = std.mem.trim(u8, buf[0..value_str.len], " ");
+
+    // Parse numeric prefix
+    var num_end: usize = 0;
+    while (num_end < lower.len and (std.ascii.isDigit(lower[num_end]) or lower[num_end] == '.')) {
+        num_end += 1;
+    }
+
+    if (num_end == 0) return 1.0;
+
+    const num_part = lower[0..num_end];
+    const base_value = try std.fmt.parseFloat(f32, num_part);
+
+    // Parse multiplier suffix
+    if (num_end >= lower.len) return base_value;
+
+    const multiplier: f32 = switch (lower[num_end]) {
+        'p' => 1e-12,
+        'n' => 1e-9,
+        'u' => 1e-6,
+        'm' => 1e-3,
+        'k' => 1e3,
+        'g' => 1e9,
+        else => 1.0,
+    };
+
+    return base_value * multiplier;
+}
+
 /// Parse a KiCAD file and save intermediate circuit format as JSON
 fn handleParseCommand(allocator: std.mem.Allocator, cli_args: volt_core.cli.CliArgs) !void {
     const kicad_file = cli_args.kicad_file orelse {
@@ -25,10 +65,9 @@ fn handleParseCommand(allocator: std.mem.Allocator, cli_args: volt_core.cli.CliA
     const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
     defer allocator.free(content);
 
-    // Create intermediate format circuit
-    var circuit = try volt_core.analog.circuit_format.InternalCircuit.init(allocator, "parsed_circuit", 10, // estimated node count
-        20 // estimated component count
-    );
+    // For now, create a simple circuit without deep parsing
+    // The circuit format is initialized but empty
+    var circuit = try volt_core.analog.circuit_format.InternalCircuit.init(allocator, "parsed_circuit", 0, 0);
     defer circuit.deinit();
 
     std.debug.print("  Created circuit structure\n", .{});
