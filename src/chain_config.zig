@@ -181,7 +181,7 @@ pub fn initChainFromJson(
                 effect_id,
                 &distortion_mod.distortion_descriptor,
                 @ptrCast(dist),
-                @ptrCast(&Distortion.process),
+                @ptrCast(&Distortion.processBuffer),
                 distortion_deinit,
             );
         } else if (std.mem.eql(u8, type_str, "convolver")) {
@@ -225,11 +225,10 @@ pub fn initChainFromJson(
                 }
             }
 
-            try chain.addEffect_with_buffer_fn(
+            try chain.addEffect_with_deinit(
                 effect_id,
                 &convolver_effect_mod.convolver_descriptor,
                 @ptrCast(conv),
-                @ptrCast(&ConvolverEffect.process),
                 @ptrCast(&ConvolverEffect.processBuffer),
                 convolver_deinit,
             );

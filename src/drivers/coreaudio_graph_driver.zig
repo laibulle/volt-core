@@ -870,16 +870,9 @@ pub const CoreAudioGraphDriver = struct {
             max_input = @max(max_input, @abs(sample));
             if (@abs(sample) > 0.001) non_zero_count += 1;
 
-            // Apply distortion if available
-            var processed = sample;
-            if (driver.distortion) |dist| {
-                processed = dist.process(sample);
-            }
-
-            // Convolution disabled for testing
-            // if (driver.convolver) |conv| {
-            //     processed = conv.processSample(processed);
-            // }
+            // Note: distortion is now applied through the effect chain buffer processing
+            // Individual sample processing is deprecated
+            const processed = sample;
 
             // Clamp and output to first channel
             const clamped = std.math.clamp(processed, -1.0, 1.0);

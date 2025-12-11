@@ -13,11 +13,8 @@ pub const EffectSlot = struct {
     /// Effect instance data (opaque pointer)
     instance: *anyopaque,
 
-    /// Process function for this effect
-    process_fn: *const fn (self: *anyopaque, input: f32) f32,
-
-    /// Optional buffer process function (for effects that need full buffer at once)
-    process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void = null,
+    /// Buffer process function (all effects process buffers)
+    process_buffer_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
 
     /// Optional deinit function for the effect instance
     deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void = null,
@@ -34,9 +31,9 @@ pub const EffectSlot = struct {
         effect_id: []const u8,
         descriptor: *const ports.EffectDescriptor,
         instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        process_buffer_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
     ) !EffectSlot {
-        return init_with_deinit(allocator, effect_id, descriptor, instance, process_fn, null);
+        return init_with_deinit(allocator, effect_id, descriptor, instance, process_buffer_fn, null);
     }
 
     /// Initialize an effect slot with optional deinit callback
@@ -45,27 +42,13 @@ pub const EffectSlot = struct {
         effect_id: []const u8,
         descriptor: *const ports.EffectDescriptor,
         instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
-        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
-    ) !EffectSlot {
-        return init_with_buffer_fn(allocator, effect_id, descriptor, instance, process_fn, null, deinit_fn);
-    }
-
-    /// Initialize an effect slot with optional buffer process function
-    pub fn init_with_buffer_fn(
-        allocator: std.mem.Allocator,
-        effect_id: []const u8,
-        descriptor: *const ports.EffectDescriptor,
-        instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
-        process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
+        process_buffer_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
         deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
     ) !EffectSlot {
         var slot = EffectSlot{
             .effect_id = effect_id,
             .descriptor = descriptor,
             .instance = instance,
-            .process_fn = process_fn,
             .process_buffer_fn = process_buffer_fn,
             .deinit_fn = deinit_fn,
             .parameters = std.StringHashMap(f32).init(allocator),
@@ -117,12 +100,6 @@ pub const EffectSlot = struct {
         return params;
     }
 
-    /// Process audio through this effect
-    pub fn process(self: *const EffectSlot, input: f32) f32 {
-        if (!self.enabled) return input;
-        return self.process_fn(self.instance, input);
-    }
-
     /// Enable/disable the effect
     pub fn setEnabled(self: *EffectSlot, enabled: bool) void {
         self.enabled = enabled;
@@ -171,49 +148,35 @@ pub const EffectChain = struct {
         }
     }
 
-    /// Add an effect to the chain
+    /// Add an effect to the chain (must have processBuffer method)
     pub fn addEffect(
         self: *EffectChain,
         effect_id: []const u8,
         descriptor: *const ports.EffectDescriptor,
         instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
+        process_buffer_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
     ) !void {
-        return self.addEffect_with_deinit(effect_id, descriptor, instance, process_fn, null);
+        return self.addEffect_with_deinit(effect_id, descriptor, instance, process_buffer_fn, null);
     }
 
-    /// Add an effect to the chain with optional deinit callback
+    /// Add an effect to the chain with optional deinit callback (must have processBuffer method)
     pub fn addEffect_with_deinit(
         self: *EffectChain,
         effect_id: []const u8,
         descriptor: *const ports.EffectDescriptor,
         instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
-        deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
-    ) !void {
-        return self.addEffect_with_buffer_fn(effect_id, descriptor, instance, process_fn, null, deinit_fn);
-    }
-
-    /// Add an effect with optional buffer process function
-    pub fn addEffect_with_buffer_fn(
-        self: *EffectChain,
-        effect_id: []const u8,
-        descriptor: *const ports.EffectDescriptor,
-        instance: *anyopaque,
-        process_fn: *const fn (self: *anyopaque, input: f32) f32,
-        process_buffer_fn: ?*const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
+        process_buffer_fn: *const fn (self: *anyopaque, buffer: *audio.AudioBuffer) void,
         deinit_fn: ?*const fn (allocator: std.mem.Allocator, instance: *anyopaque) void,
     ) !void {
         if (self.effect_count >= MAX_EFFECTS) {
             return error.ChainFull;
         }
 
-        const slot = try EffectSlot.init_with_buffer_fn(
+        const slot = try EffectSlot.init_with_deinit(
             self.allocator,
             effect_id,
             descriptor,
             instance,
-            process_fn,
             process_buffer_fn,
             deinit_fn,
         );
@@ -321,45 +284,14 @@ pub const EffectChain = struct {
         return false;
     }
 
-    /// Process audio through entire effect chain
-    pub fn process(self: *const EffectChain, input: f32) f32 {
-        var output = input;
-        for (0..self.effect_count) |i| {
-            if (self.slots[i]) |slot| {
-                output = slot.process(output);
-            }
-        }
-        return output;
-    }
-
     /// Process entire audio buffer through the effect chain
+    /// All effects must implement buffer-level processing
     pub fn processBuffer(self: *const EffectChain, buffer: *audio.AudioBuffer) void {
-        // First pass: apply buffer-level effects (e.g., convolver)
         for (0..self.effect_count) |i| {
             if (self.slots[i]) |slot| {
-                if (slot.process_buffer_fn) |process_buffer_fn| {
-                    process_buffer_fn(slot.instance, buffer);
+                if (slot.enabled) {
+                    slot.process_buffer_fn(slot.instance, buffer);
                 }
-            }
-        }
-
-        // Second pass: apply sample-level effects (e.g., distortion)
-        const sample_count = buffer.samples.len / buffer.channel_count;
-        for (0..sample_count) |i| {
-            for (0..buffer.channel_count) |ch| {
-                const sample_idx = i * buffer.channel_count + ch;
-                var output = buffer.samples[sample_idx];
-
-                for (0..self.effect_count) |j| {
-                    if (self.slots[j]) |slot| {
-                        // Skip effects that have their own buffer processing
-                        if (slot.process_buffer_fn == null) {
-                            output = slot.process(output);
-                        }
-                    }
-                }
-
-                buffer.samples[sample_idx] = output;
             }
         }
     }
