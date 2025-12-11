@@ -104,15 +104,15 @@ pub const WAVLoader = struct {
                 if (read_count < 3) break;
 
                 // Convert 24-bit little-endian to 32-bit signed integer
-                var int_sample: i32 = @as(i32, sample_buf[0]) | 
-                                      (@as(i32, sample_buf[1]) << 8) | 
-                                      (@as(i32, sample_buf[2]) << 16);
-                
+                var int_sample: i32 = @as(i32, sample_buf[0]) |
+                    (@as(i32, sample_buf[1]) << 8) |
+                    (@as(i32, sample_buf[2]) << 16);
+
                 // Sign extend if MSB is set (bit 23)
                 if (int_sample & 0x800000 != 0) {
                     int_sample = @as(i32, @bitCast(@as(u32, @bitCast(int_sample)) | 0xFF000000));
                 }
-                
+
                 const f_sample = @as(f32, @floatFromInt(int_sample)) / 8388608.0;
                 buffer.samples[sample_i] = f_sample;
                 sample_i += 1;

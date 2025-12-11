@@ -25,13 +25,13 @@ fn audioCallback(
     const context = @as(*PlaybackContext, @ptrCast(@alignCast(userData)));
     const out = @as([*]f32, @ptrCast(@alignCast(output)));
 
+    // frameCount is in frames, need to write frameCount * channel_count samples
+    const total_samples_needed = frameCount * context.channel_count;
     var i: usize = 0;
-    var max_sample: f32 = 0.0;
-    while (i < frameCount) : (i += 1) {
+    while (i < total_samples_needed) : (i += 1) {
         if (context.current_position < context.sample_count * context.channel_count) {
             const sample = context.buffer[context.current_position];
             out[i] = sample;
-            if (sample > max_sample) max_sample = sample;
             context.current_position += 1;
         } else {
             out[i] = 0.0;
