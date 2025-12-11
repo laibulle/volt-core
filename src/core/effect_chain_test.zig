@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const effect_chain_mod = @import("effect_chain.zig");
 const distortion_mod = @import("../effects/distortions/distortion.zig");
+const audio = @import("../audio.zig");
 const ports = @import("../ports/effects.zig");
 
 const EffectChain = effect_chain_mod.EffectChain;
@@ -19,7 +20,7 @@ test "EffectSlot: init and deinit" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     defer slot.deinit();
 
@@ -38,7 +39,7 @@ test "EffectSlot: set and get parameters" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     defer slot.deinit();
 
@@ -62,7 +63,7 @@ test "EffectSlot: parameter clamping" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     defer slot.deinit();
 
@@ -86,7 +87,7 @@ test "EffectSlot: invalid parameter name" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     defer slot.deinit();
 
@@ -105,7 +106,7 @@ test "EffectSlot: enable/disable" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     defer slot.deinit();
 
@@ -114,36 +115,6 @@ test "EffectSlot: enable/disable" {
     try testing.expectEqual(slot.isEnabled(), false);
     slot.setEnabled(true);
     try testing.expectEqual(slot.isEnabled(), true);
-}
-
-test "EffectSlot: disabled effect passes through input" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var dist = Distortion.initWithParams(&[_]ports.Parameter{
-        .{ .name = "drive", .value = 5.0 },
-        .{ .name = "tone", .value = 0.5 },
-    });
-    var slot = try EffectSlot.init(
-        allocator,
-        "distortion",
-        &distortion_mod.distortion_descriptor,
-        @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
-    );
-    defer slot.deinit();
-
-    const input: f32 = 0.5;
-
-    // Disabled: should pass through
-    slot.setEnabled(false);
-    try testing.expectEqual(slot.process(input), input);
-
-    // Enabled: should process
-    slot.setEnabled(true);
-    const output = slot.process(input);
-    try testing.expect(output != input); // Should be different (distorted)
 }
 
 test "EffectChain: init and deinit" {
@@ -170,7 +141,7 @@ test "EffectChain: add effect" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expectEqual(chain.effectCount(), 1);
@@ -191,13 +162,13 @@ test "EffectChain: add multiple effects" {
         "distortion_1",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist1),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     try chain.addEffect(
         "distortion_2",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist2),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expectEqual(chain.effectCount(), 2);
@@ -216,7 +187,7 @@ test "EffectChain: get effect by index" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     if (chain.getEffect(0)) |slot| {
@@ -241,7 +212,7 @@ test "EffectChain: get effect by ID" {
         "my_distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     if (chain.getEffectById("my_distortion")) |slot| {
@@ -266,7 +237,7 @@ test "EffectChain: set and get effect parameters" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expect(try chain.setEffectParameter(0, "drive", 3.5));
@@ -286,7 +257,7 @@ test "EffectChain: set and get effect parameters by ID" {
         "dist_main",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expect(try chain.setEffectParameterById("dist_main", "tone", 0.8));
@@ -306,7 +277,7 @@ test "EffectChain: remove effect" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expectEqual(chain.effectCount(), 1);
@@ -328,7 +299,7 @@ test "EffectChain: enable/disable effect" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expect(chain.setEffectEnabled(0, false));
@@ -355,7 +326,7 @@ test "EffectChain: enable/disable effect by ID" {
         "main_distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
     try testing.expect(chain.setEffectEnabledById("main_distortion", false));
@@ -364,7 +335,7 @@ test "EffectChain: enable/disable effect by ID" {
     }
 }
 
-test "EffectChain: process audio through single effect" {
+test "EffectChain: processBuffer applies effects" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -380,15 +351,22 @@ test "EffectChain: process audio through single effect" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
+    var buffer = try audio.AudioBuffer.init(allocator, 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
-    const output = chain.process(input);
+    buffer.setSample(0, 0, input);
+
+    chain.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     try testing.expect(output != input); // Should be distorted
 }
 
-test "EffectChain: process audio through multiple effects" {
+test "EffectChain: processBuffer through multiple effects" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -409,21 +387,28 @@ test "EffectChain: process audio through multiple effects" {
         "distortion_1",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist1),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
     try chain.addEffect(
         "distortion_2",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist2),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
+    var buffer = try audio.AudioBuffer.init(allocator, 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.3;
-    const output = chain.process(input);
+    buffer.setSample(0, 0, input);
+
+    chain.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     try testing.expect(output != input);
 }
 
-test "EffectChain: disabled effect in chain passes through" {
+test "EffectChain: disabled effect in chain is skipped" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -439,17 +424,24 @@ test "EffectChain: disabled effect in chain passes through" {
         "distortion",
         &distortion_mod.distortion_descriptor,
         @ptrCast(&dist),
-        @ptrCast(&Distortion.process),
+        @ptrCast(&Distortion.processBuffer),
     );
 
+    var buffer = try audio.AudioBuffer.init(allocator, 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
+    buffer.setSample(0, 0, input);
 
-    // Enabled
-    var output = chain.process(input);
-    try testing.expect(output != input);
+    // Test with enabled effect
+    chain.processBuffer(&buffer);
+    const enabled_output = buffer.getSample(0, 0);
+    try testing.expect(enabled_output != input);
 
-    // Disable and test
+    // Reset buffer and test with disabled effect
+    buffer.setSample(0, 0, input);
     _ = chain.setEffectEnabled(0, false);
-    output = chain.process(input);
-    try testing.expectEqual(output, input);
+    chain.processBuffer(&buffer);
+    const disabled_output = buffer.getSample(0, 0);
+    try testing.expectEqual(disabled_output, input);
 }

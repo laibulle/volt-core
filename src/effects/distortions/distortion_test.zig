@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const distortion_mod = @import("distortion.zig");
+const audio = @import("../../audio.zig");
 const ports = @import("../../ports/effects.zig");
 
 const Distortion = distortion_mod.Distortion;
@@ -66,57 +67,90 @@ test "distortion: getParameter returns null for invalid names" {
     try testing.expectEqual(dist.getParameter("invalid_param"), null);
 }
 
-test "distortion: process without distortion (drive=1, tone=1)" {
+test "distortion: processBuffer without distortion (drive=1, tone=1)" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
     const dist = Distortion.initWithParams(&[_]ports.Parameter{
         .{ .name = "drive", .value = 1.0 },
         .{ .name = "tone", .value = 1.0 },
     });
+
+    var buffer = try audio.AudioBuffer.init(gpa.allocator(), 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
-    const output = dist.process(input);
-    // With drive=1.0: sample = 0.5
-    // With tanh: tanh(0.5) ≈ 0.4621
-    // With tone=1.0: 0.4621 * 1.0 ≈ 0.4621
+    buffer.setSample(0, 0, input);
+
+    dist.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     const expected = std.math.tanh(0.5);
     try testing.expectApproxEqAbs(output, expected, 0.001);
 }
 
-test "distortion: process with increased drive" {
+test "distortion: processBuffer with increased drive" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
     const dist = Distortion.initWithParams(&[_]ports.Parameter{
         .{ .name = "drive", .value = 2.0 },
         .{ .name = "tone", .value = 1.0 },
     });
+
+    var buffer = try audio.AudioBuffer.init(gpa.allocator(), 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
-    const output = dist.process(input);
-    // With drive=2.0: sample = 0.5 * 2.0 = 1.0
-    // With tanh: tanh(1.0) ≈ 0.7616
-    // With tone=1.0: 0.7616 * 1.0 ≈ 0.7616
+    buffer.setSample(0, 0, input);
+
+    dist.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     const expected = std.math.tanh(1.0);
     try testing.expectApproxEqAbs(output, expected, 0.001);
 }
 
-test "distortion: process with tone reduction" {
+test "distortion: processBuffer with tone reduction" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
     const dist = Distortion.initWithParams(&[_]ports.Parameter{
         .{ .name = "drive", .value = 1.0 },
         .{ .name = "tone", .value = 0.5 },
     });
+
+    var buffer = try audio.AudioBuffer.init(gpa.allocator(), 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
-    const output = dist.process(input);
-    // With drive=1.0: sample = 0.5
-    // With tanh: tanh(0.5) ≈ 0.4621
-    // With tone=0.5: 0.4621 * 0.5 ≈ 0.2311
+    buffer.setSample(0, 0, input);
+
+    dist.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     const expected = std.math.tanh(0.5) * 0.5;
     try testing.expectApproxEqAbs(output, expected, 0.001);
 }
 
-test "distortion: process clips extreme values" {
+test "distortion: processBuffer clips extreme values" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
     const dist = Distortion.initWithParams(&[_]ports.Parameter{
-        .{ .name = "drive", .value = 10.0 }, // maximum drive
+        .{ .name = "drive", .value = 10.0 },
         .{ .name = "tone", .value = 1.0 },
     });
+
+    var buffer = try audio.AudioBuffer.init(gpa.allocator(), 44100, 1, 1);
+    defer buffer.deinit();
+
     const input: f32 = 0.5;
-    const output = dist.process(input);
-    // With drive=10.0: sample = 0.5 * 10.0 = 5.0
-    // tanh(5.0) approaches 1.0 (soft clipping)
+    buffer.setSample(0, 0, input);
+
+    dist.processBuffer(&buffer);
+
+    const output = buffer.getSample(0, 0);
     try testing.expect(output > 0.99 and output <= 1.0);
 }
 
