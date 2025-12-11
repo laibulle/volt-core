@@ -98,14 +98,14 @@ pub fn build(b: *std.Build) void {
         exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/lib" });
         exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/portaudio/include" });
         exe.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/opt/onnxruntime/lib" });
-        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/onnxruntime/include" });
+        exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/opt/onnxruntime/include/onnxruntime" });
     } else if (target.result.os.tag == .linux) {
         // Linux: Link PortAudio and ONNX Runtime
         exe.linkSystemLibrary("portaudio");
         exe.linkSystemLibrary("onnxruntime");
         exe.linkLibC();
         exe.addLibraryPath(.{ .cwd_relative = "/usr/lib" });
-        exe.addIncludePath(.{ .cwd_relative = "/usr/include" });
+        exe.addIncludePath(.{ .cwd_relative = "/usr/include/onnxruntime" });
     }
 
     exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
