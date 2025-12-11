@@ -65,13 +65,13 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
             std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
-            std.debug.print("Usage: volt_core [options]\n", .{});
+            std.debug.print("Usage: volt_core --chain <file> [options]\n", .{});
             std.debug.print("Options:\n", .{});
+            std.debug.print("  --chain, -c <file>                Load effect chain from JSON config file (REQUIRED)\n", .{});
             std.debug.print("  --list-devices, -ld               List available audio devices\n", .{});
             std.debug.print("  --realtime, -rt                   Use real-time input (guitar input)\n", .{});
             std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
             std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
-            std.debug.print("  --chain, -c <file>                Load effect chain from JSON config file\n", .{});
             std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
             std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
             std.debug.print("                                    Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
@@ -84,27 +84,34 @@ pub fn main() !void {
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
 
-    // Load effect chain configuration if provided
-    if (chain_config_file) |config_file| {
-        std.debug.print("Loading effect chain from: {s}\n", .{config_file});
-
-        const file = std.fs.cwd().openFile(config_file, .{}) catch |err| {
-            std.debug.print("Error opening chain config file: {}\n", .{err});
-            return err;
-        };
-        defer file.close();
-
-        const json_content = try file.readToEndAlloc(allocator, 1024 * 1024);
-        defer allocator.free(json_content);
-
-        var chain = volt_core.chain_config.initChainFromJson(allocator, json_content) catch |err| {
-            std.debug.print("Error parsing chain config: {}\n", .{err});
-            return err;
-        };
-        defer chain.deinit();
-
-        try volt_core.chain_config.printChainConfig(&chain);
+    // Load effect chain configuration (required)
+    if (chain_config_file == null) {
+        std.debug.print("Error: Chain configuration is required. Use --chain or -c to specify a JSON config file.\n", .{});
+        std.debug.print("Available configs in config/ directory:\n", .{});
+        std.debug.print("  - chain_single_distortion.json\n", .{});
+        std.debug.print("  - chain_dual_distortion.json\n", .{});
+        std.debug.print("  - chain_three_stage.json\n", .{});
+        return error.MissingChainConfiguration;
     }
+
+    std.debug.print("Loading effect chain from: {s}\n", .{chain_config_file.?});
+
+    const file = std.fs.cwd().openFile(chain_config_file.?, .{}) catch |err| {
+        std.debug.print("Error opening chain config file: {}\n", .{err});
+        return err;
+    };
+    defer file.close();
+
+    const json_content = try file.readToEndAlloc(allocator, 1024 * 1024);
+    defer allocator.free(json_content);
+
+    var chain = volt_core.chain_config.initChainFromJson(allocator, json_content) catch |err| {
+        std.debug.print("Error parsing chain config: {}\n", .{err});
+        return err;
+    };
+    defer chain.deinit();
+
+    try volt_core.chain_config.printChainConfig(&chain);
 
     // Select and initialize audio driver based on platform
     const SelectedDriver = volt_core.audio_driver.selectDriver();
@@ -117,50 +124,18 @@ pub fn main() !void {
     }
 
     if (use_realtime) {
-        // Load IR for convolution
-        // const ir_loader = volt_core.ir_loader.IRLoader.init(allocator);
-        // std.debug.print("Loading: samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav\n", .{});
-
-        // var ir_buffer = ir_loader.loadFile("samples/ir/CelestionVintage30/44.1kHz/200ms/Cenzo CelestionV30Mix.wav") catch |err| {
-        //     std.debug.print("Error loading IR: {}\n", .{err});
-        //     return err;
-        // };
-        // defer ir_buffer.deinit(allocator);
-
-        // std.debug.print("✓ Loaded IR: {d} samples\n\n", .{ir_buffer.samples.len});
-
-        // Create empty IR buffer for testing (minimal impulse to bypass convolution)
-        // const audio = @import("volt_core").audio;
-        // var ir_buffer = try audio.AudioBuffer.init(allocator, 1, 1, 44100);
-        // ir_buffer.samples[0] = 1.0; // Single impulse = bypass
-        // defer ir_buffer.deinit(allocator);
-
-        // std.debug.print("✓ Using test IR (bypassed)\n\n", .{});
-
-        // Setup effects chain
-        var distortion = volt_core.effects.Distortion{
-            .drive = 6.5,
-            .tone = 0.8,
-        };
-
-        //var convolver = try volt_core.effects.Convolver.init(allocator, ir_buffer);
-        // defer convolver.deinit();
-
-        // Build effects array
-        const effects = [_]*anyopaque{
-            @ptrCast(&distortion),
-            // @ptrCast(&convolver), // Commented out for testing
-        };
-
         std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
-        std.debug.print("(Distortion: drive={d:.1}, tone={d:.1})\n", .{ distortion.drive, distortion.tone });
-        std.debug.print("(Cabinet: disabled for testing)\n", .{});
         std.debug.print("(Buffer size: {d} frames)\n", .{buffer_size});
         std.debug.print("(Sample rate: {d} Hz)\n", .{sample_rate});
-        std.debug.print("(Effects: {d} in chain)\n\n", .{effects.len});
+        std.debug.print("(Effects in chain: {d})\n\n", .{chain.effectCount()});
 
-        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &effects);
+        // Create a single effect processor that wraps the entire chain
+        const chain_processor = [_]*anyopaque{
+            @ptrCast(&chain),
+        };
+
+        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &chain_processor);
         driver.deinit(); // Clean up audio resources
     } else {
         // Load guitar sample (existing behavior)
@@ -179,14 +154,9 @@ pub fn main() !void {
             audio_buffer.channel_count,
         });
 
-        // Apply distortion effect
-        var distortion = volt_core.effects.Distortion{
-            .drive = 10.0,
-            .tone = 0.8,
-        };
-
-        std.debug.print("✓ Applying distortion (drive: {d:.1}, tone: {d:.1})\n", .{ distortion.drive, distortion.tone });
-        distortion.processBuffer(&audio_buffer);
+        // Apply configured effect chain
+        std.debug.print("✓ Applying effect chain ({d} effects)...\n", .{chain.effectCount()});
+        chain.processBuffer(&audio_buffer);
 
         // Load impulse response (cabinet simulation)
         const ir_loader = volt_core.ir_loader.IRLoader.init(allocator);

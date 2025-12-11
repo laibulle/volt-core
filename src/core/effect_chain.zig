@@ -1,5 +1,6 @@
 const std = @import("std");
 const ports = @import("../ports/effects.zig");
+const audio = @import("../audio.zig");
 
 /// Effect slot that holds an effect instance with its metadata and parameters
 pub const EffectSlot = struct {
@@ -298,6 +299,17 @@ pub const EffectChain = struct {
             }
         }
         return output;
+    }
+
+    /// Process entire audio buffer through the effect chain
+    pub fn processBuffer(self: *const EffectChain, buffer: *audio.AudioBuffer) void {
+        const sample_count = buffer.samples.len / buffer.channel_count;
+        for (0..sample_count) |i| {
+            for (0..buffer.channel_count) |ch| {
+                const sample_idx = i * buffer.channel_count + ch;
+                buffer.samples[sample_idx] = self.process(buffer.samples[sample_idx]);
+            }
+        }
     }
 
     /// Get list of all effects metadata
