@@ -69,16 +69,26 @@ pub const NeuralEffect = struct {
 
     /// Process audio buffer through the neural effect
     pub fn processBuffer(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
+        std.debug.print("\n[Neural] processBuffer called\n", .{});
+        std.debug.print("  Model loaded: {}\n", .{self.model != null});
+        std.debug.print("  Buffer samples: {d}, Channels: {d}, Sample rate: {d}Hz\n", .{
+            buffer.samples.len,
+            buffer.channel_count,
+            buffer.sample_rate,
+        });
+
         if (self.model == null) {
             // No model loaded, pass through
+            std.debug.print("  [WARNING] No model loaded, passing through\n", .{});
             return;
         }
 
         const frame_count = buffer.samples.len / buffer.channel_count;
-        _ = frame_count;
+        std.debug.print("  Frames: {d}\n", .{frame_count});
 
         // Allocate dry buffer if needed for mixing
         if (self.dry_wet < 1.0) {
+            std.debug.print("  Allocating dry buffer for dry/wet mixing (ratio: {d})\n", .{self.dry_wet});
             if (self.dry_buffer == null or self.dry_buffer_size < buffer.samples.len) {
                 if (self.dry_buffer) |old_buffer| {
                     self.allocator.free(old_buffer);
@@ -97,19 +107,20 @@ pub const NeuralEffect = struct {
         // Apply input gain
         if (self.input_gain != 0.0) {
             const gain_linear = std.math.pow(f32, 10.0, self.input_gain / 20.0);
+            std.debug.print("  Applying input gain: {d}dB (linear: {d})\n", .{ self.input_gain, gain_linear });
             for (0..buffer.samples.len) |i| {
                 buffer.samples[i] *= gain_linear;
             }
         }
 
         // Process through neural model
-        // For now, we'll implement a placeholder pass-through
-        // In Phase 2, this will integrate ONNX Runtime inference
-        _ = self.processNeuralModel(buffer);
+        std.debug.print("  Processing through neural model...\n", .{});
+        self.processNeuralModel(buffer);
 
         // Apply output gain
         if (self.output_gain != 0.0) {
             const gain_linear = std.math.pow(f32, 10.0, self.output_gain / 20.0);
+            std.debug.print("  Applying output gain: {d}dB (linear: {d})\n", .{ self.output_gain, gain_linear });
             for (0..buffer.samples.len) |i| {
                 buffer.samples[i] *= gain_linear;
             }
@@ -117,6 +128,7 @@ pub const NeuralEffect = struct {
 
         // Dry/Wet mixing
         if (self.dry_wet < 1.0) {
+            std.debug.print("  Mixing dry/wet...\n", .{});
             const wet_factor = self.dry_wet;
             const dry_factor = 1.0 - self.dry_wet;
 
@@ -124,12 +136,20 @@ pub const NeuralEffect = struct {
                 buffer.samples[i] = buffer.samples[i] * wet_factor + self.dry_buffer.?[i] * dry_factor;
             }
         }
+        std.debug.print("  [Neural] processBuffer complete\n\n", .{});
     }
 
     /// Process audio through the neural model
     /// This is a placeholder - will be replaced with actual ONNX inference in Phase 2
     fn processNeuralModel(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
-        if (self.model == null) return;
+        if (self.model == null) {
+            std.debug.print("    [ERROR] Model is null in processNeuralModel\n", .{});
+            return;
+        }
+
+        std.debug.print("    Model: {s}\n", .{self.model.?.metadata.name});
+        std.debug.print("    Model sample rate: {d}Hz\n", .{self.model.?.metadata.sample_rate});
+        std.debug.print("    Buffer sample rate: {d}Hz\n", .{buffer.sample_rate});
 
         // Placeholder: Currently just passes audio through
         // In Phase 2, this will:
@@ -138,22 +158,25 @@ pub const NeuralEffect = struct {
         // 3. Denormalize output
 
         // TODO: Implement ONNX Runtime integration
-        std.debug.print("Neural model processing: {s}\n", .{self.model.?.metadata.name});
-        _ = buffer;
+        std.debug.print("    [TODO] ONNX Runtime inference not yet implemented\n", .{});
     }
 
     /// Set a parameter value
     pub fn setParameter(self: *NeuralEffect, name: []const u8, value: f32) bool {
         if (std.mem.eql(u8, name, "dry_wet")) {
             self.dry_wet = std.math.clamp(value, 0.0, 1.0);
+            std.debug.print("  [Neural] Set dry_wet = {d}\n", .{self.dry_wet});
             return true;
         } else if (std.mem.eql(u8, name, "input_gain")) {
             self.input_gain = std.math.clamp(value, -24.0, 24.0);
+            std.debug.print("  [Neural] Set input_gain = {d}\n", .{self.input_gain});
             return true;
         } else if (std.mem.eql(u8, name, "output_gain")) {
             self.output_gain = std.math.clamp(value, -24.0, 24.0);
+            std.debug.print("  [Neural] Set output_gain = {d}\n", .{self.output_gain});
             return true;
         }
+        std.debug.print("  [Neural] Unknown parameter: {s}\n", .{name});
         return false;
     }
 

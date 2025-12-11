@@ -3,13 +3,13 @@
     "description": "Effect chain with only the JCM 800 neural model",
     "effects": [
         {
-            "id": "orange_amp_neural",
+            "id": "jcm800_neural",
             "type": "neural",
             "parameters": {
                 "model_path": "samples/neural/JCM 800.nam",
-                "dry_wet": 0.0,
-                "input_gain": 1.0,
-                "output_gain": 1.0
+                "dry_wet": 1.0,
+                "input_gain": 0.0,
+                "output_gain": 0.0
             }
         }
     ]
