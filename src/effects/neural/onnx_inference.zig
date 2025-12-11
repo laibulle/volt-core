@@ -125,7 +125,19 @@ pub const WaveNetInference = struct {
             const weights_for_layer = layer.dilations.len * layer.kernel_size * layer.input_size * layer.channels;
             weight_offset += weights_for_layer;
 
-            std.debug.print("[WaveNet]   Layer {d}: {d}→{d} channels, history size {d}, weights {d}-{d}\n", .{ i, layer.input_size, layer.channels, history_size, self.layer_weight_offsets.?[i], weight_offset });
+            // Debug: check weights for this layer
+            var weight_sum: f32 = 0.0;
+            var weight_max: f32 = 0.0;
+            const layer_start = self.layer_weight_offsets.?[i];
+            const layer_end = weight_offset;
+            for (layer_start..layer_end) |w_idx| {
+                if (w_idx < model.weights.len) {
+                    weight_sum += @abs(model.weights[w_idx]);
+                    weight_max = @max(weight_max, @abs(model.weights[w_idx]));
+                }
+            }
+
+            std.debug.print("[WaveNet]   Layer {d}: {d}→{d} channels, history size {d}, weights {d}-{d}, sum={d:.4}, max={d:.4}\n", .{ i, layer.input_size, layer.channels, history_size, layer_start, layer_end, weight_sum, weight_max });
         }
     }
 
@@ -165,47 +177,66 @@ pub const WaveNetInference = struct {
         const history = self.layer_histories.?[layer_idx];
         const layer_offset = self.layer_weight_offsets.?[layer_idx];
 
-        // Calculate output from dilated convolution
-        var output: f32 = 0.0;
+        // For a single-channel input, we average across output channels
+        // Each output channel processes independently
+        var channel_outputs: [16]f32 = undefined; // Max 16 channels
+        const num_out_channels = @min(layer.channels, 16);
 
-        // For each dilation in the layer
-        for (layer.dilations, 0..) |dilation, dil_idx| {
-            // Convolve across the kernel size
-            for (0..layer.kernel_size) |k| {
-                // Calculate the position in history to read
-                const delay = dilation * (layer.kernel_size - 1 - k);
-                var history_sample: f32 = 0.0;
+        for (0..num_out_channels) |out_ch| {
+            var output: f32 = 0.0;
+            const weights_per_out_ch = layer.dilations.len * layer.kernel_size;
+            const ch_weight_offset = layer_offset + (out_ch * weights_per_out_ch);
 
-                if (delay < history.len) {
-                    // Read from history buffer
-                    const history_idx = history.len - 1 - delay;
-                    history_sample = history[history_idx];
-                } else {
-                    // Outside history window, use input
-                    history_sample = input;
-                }
+            // For each dilation in the layer
+            for (layer.dilations, 0..) |dilation, dil_idx| {
+                // Convolve across the kernel size
+                for (0..layer.kernel_size) |k| {
+                    // Calculate the position in history to read
+                    const delay = dilation * (layer.kernel_size - 1 - k);
+                    var history_sample: f32 = 0.0;
 
-                // Get weight - simple sequential indexing
-                const weight_idx = layer_offset + (dil_idx * layer.kernel_size) + k;
+                    // Always use current input for the first tap (most recent),
+                    // then use history for previous samples
+                    if (k == 0 and dil_idx == 0) {
+                        // First tap: use current input
+                        history_sample = input;
+                    } else if (delay < history.len) {
+                        // Read from history buffer
+                        const history_idx = history.len - 1 - delay;
+                        history_sample = history[history_idx];
+                    } else {
+                        // Beyond history window, use zero
+                        history_sample = 0.0;
+                    }
 
-                if (weight_idx < model.weights.len) {
-                    output += history_sample * model.weights[weight_idx];
+                    // Get weight for this output channel
+                    const weight_idx = ch_weight_offset + (dil_idx * layer.kernel_size) + k;
+
+                    if (weight_idx < model.weights.len) {
+                        const weight = model.weights[weight_idx];
+                        output += history_sample * weight;
+                    }
                 }
             }
+
+            // Apply activation function (Tanh)
+            channel_outputs[out_ch] = self.tanh(output);
         }
 
-        // Apply activation function (Tanh)
-        const activated = self.tanh(output);
-
-        // Update history buffer with new output
+        // Update history buffer with first output channel
         if (history.len > 0) {
             for (0..history.len - 1) |j| {
                 history[j] = history[j + 1];
             }
-            history[history.len - 1] = activated;
+            history[history.len - 1] = channel_outputs[0];
         }
 
-        return activated;
+        // Return average of all output channels
+        var sum: f32 = 0.0;
+        for (0..num_out_channels) |i| {
+            sum += channel_outputs[i];
+        }
+        return sum / @as(f32, @floatFromInt(num_out_channels));
     }
 
     /// Fast approximation of tanh activation
