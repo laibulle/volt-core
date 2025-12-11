@@ -29,6 +29,8 @@ pub const circuit_format = @import("circuit_format.zig");
 pub const kicad_parser = @import("kicad_parser.zig");
 pub const circuit_simulator = @import("circuit_simulator.zig");
 pub const analog_effect = @import("analog_effect.zig");
+pub const components = @import("components.zig");
+pub const component_library = @import("component_library.zig");
 
 pub const AnalogLoader = analog_effect.AnalogLoader;
 pub const CircuitPresets = analog_effect.CircuitPresets;
@@ -36,17 +38,29 @@ pub const CircuitSimulator = circuit_simulator.CircuitSimulator;
 pub const KiCADParser = kicad_parser.KiCADParser;
 pub const InternalCircuit = circuit_format.InternalCircuit;
 pub const CircuitBuilder = circuit_format.CircuitBuilder;
+pub const ComponentLibrary = component_library.ComponentLibrary;
+pub const SignalProcessor = component_library.SignalProcessor;
+pub const CircuitLibraryPresets = component_library.CircuitPresets;
 
 pub const analog_descriptor = analog_effect.analog_descriptor;
 pub const processAnalogBuffer = analog_effect.processAnalogBuffer;
 pub const deinitAnalogLoader = analog_effect.deinitAnalogLoader;
 
-// Re-export commonly used component types
+// Re-export commonly used component types from both modules
 pub const Component = component_definitions.Component;
 pub const ComponentType = component_definitions.ComponentType;
-pub const Resistor = component_definitions.Resistor;
-pub const Capacitor = component_definitions.Capacitor;
-pub const Inductor = component_definitions.Inductor;
-pub const Diode = component_definitions.Diode;
-pub const OpAmp = component_definitions.OpAmp;
-pub const Transistor = component_definitions.Transistor;
+pub const ResistorDef = component_definitions.Resistor;
+pub const CapacitorDef = component_definitions.Capacitor;
+pub const InductorDef = component_definitions.Inductor;
+pub const DiodeDef = component_definitions.Diode;
+pub const OpAmpDef = component_definitions.OpAmp;
+pub const TransistorDef = component_definitions.Transistor;
+
+// Re-export signal processing component types
+pub const Resistor = components.Resistor;
+pub const Capacitor = components.Capacitor;
+pub const Inductor = components.Inductor;
+pub const Diode = components.Diode;
+pub const OpAmp = components.OpAmp;
+pub const Transistor = components.Transistor;
+pub const ComponentValue = components.ComponentValue;
