@@ -1,38 +1,103 @@
 const std = @import("std");
 const audio = @import("../../audio.zig");
+const ports = @import("../../ports/effects.zig");
+const ir_loader_module = @import("../../ir_loader.zig");
+const wav_loader_module = @import("../../wav_loader.zig");
 
-/// Simple convolver using overlap-add FFT-free convolution (time-domain)
-/// For real-time performance with short IR, we use direct convolution
+/// Convolver effect metadata
+pub const convolver_descriptor: ports.EffectDescriptor = .{
+    .id = "convolver",
+    .name = "Convolver (Cabinet/IR)",
+    .description = "Impulse response convolution for cabinet emulation",
+    .version = "1.0.0",
+    .available_parameters = &.{
+        .{
+            .name = "dry_wet",
+            .param_type = ports.ParameterType.float,
+            .default_value = 1.0,
+            .min_value = 0.0,
+            .max_value = 1.0,
+            .description = "Dry/Wet mix (0=dry, 1=wet)",
+        },
+    },
+};
+
+/// Convolver effect processor with IR loading
 pub const Convolver = struct {
     ir_buffer: [*]const f32,
     ir_length: usize,
     allocator: std.mem.Allocator,
     overlap_buffer: [*]f32,
     overlap_length: usize,
+    dry_wet: f32,
 
-    pub fn init(allocator: std.mem.Allocator, ir_buffer: audio.AudioBuffer) !Convolver {
-        // Allocate overlap buffer for overlap-add (typically IR length)
-        const ir_length = ir_buffer.samples.len / ir_buffer.channel_count;
+    /// Initialize convolver from IR file path
+    pub fn initFromFile(allocator: std.mem.Allocator, ir_path: []const u8) !Convolver {
+        const ir_loader = ir_loader_module.IRLoader.init(allocator);
+        var ir_audio = try ir_loader.loadFile(ir_path);
+        defer ir_audio.deinit(allocator);
+
+        const ir_length = ir_audio.samples.len / ir_audio.channel_count;
         const overlap_buffer = try allocator.alloc(f32, ir_length);
         @memset(overlap_buffer, 0.0);
 
+        // Keep IR buffer alive - we need to store the samples permanently
+        const ir_samples = try allocator.dupe(f32, ir_audio.samples);
+
         return Convolver{
-            .ir_buffer = ir_buffer.samples.ptr,
+            .ir_buffer = ir_samples.ptr,
             .ir_length = ir_length,
             .allocator = allocator,
             .overlap_buffer = overlap_buffer.ptr,
             .overlap_length = ir_length,
+            .dry_wet = convolver_descriptor.available_parameters[0].default_value,
+        };
+    }
+
+    /// Initialize convolver from audio buffer
+    pub fn init(allocator: std.mem.Allocator, ir_buffer: audio.AudioBuffer) !Convolver {
+        const ir_length = ir_buffer.samples.len / ir_buffer.channel_count;
+        const overlap_buffer = try allocator.alloc(f32, ir_length);
+        @memset(overlap_buffer, 0.0);
+
+        // Duplicate IR samples to keep them in memory
+        const ir_samples = try allocator.dupe(f32, ir_buffer.samples);
+
+        return Convolver{
+            .ir_buffer = ir_samples.ptr,
+            .ir_length = ir_length,
+            .allocator = allocator,
+            .overlap_buffer = overlap_buffer.ptr,
+            .overlap_length = ir_length,
+            .dry_wet = convolver_descriptor.available_parameters[0].default_value,
         };
     }
 
     pub fn deinit(self: *Convolver) void {
         self.allocator.free(self.overlap_buffer[0..self.overlap_length]);
+        self.allocator.free(self.ir_buffer[0..self.ir_length]);
     }
 
-    /// Process audio buffer with convolution
+    /// Set a parameter value by name
+    pub fn setParameter(self: *Convolver, name: []const u8, value: f32) bool {
+        if (std.mem.eql(u8, name, "dry_wet")) {
+            self.dry_wet = convolver_descriptor.available_parameters[0].clamp(value);
+            return true;
+        }
+        return false;
+    }
+
+    /// Get a parameter value by name
+    pub fn getParameter(self: *const Convolver, name: []const u8) ?f32 {
+        if (std.mem.eql(u8, name, "dry_wet")) {
+            return self.dry_wet;
+        }
+        return null;
+    }
+
+    /// Process entire audio buffer with convolution
     pub fn processBuffer(self: *Convolver, buffer: *audio.AudioBuffer) void {
-        // Simple direct convolution (time-domain)
-        // For each output sample, convolve with the IR
+        // Direct convolution (time-domain)
         var output = self.allocator.alloc(f32, buffer.samples.len) catch return;
         defer self.allocator.free(output);
 
@@ -53,19 +118,20 @@ pub const Convolver = struct {
             output[n] = sum;
         }
 
-        // Copy output back and normalize to prevent clipping
+        // Find peak to normalize and prevent clipping
         var max_sample: f32 = 0.0;
         for (output) |sample| {
-            if (sample > max_sample) max_sample = sample;
+            const abs_sample = if (sample < 0.0) -sample else sample;
+            if (abs_sample > max_sample) max_sample = abs_sample;
         }
 
-        if (max_sample > 1.0) {
-            const scale = 0.95 / max_sample;
-            for (0..buffer.samples.len) |i| {
-                buffer.samples[i] = output[i] * scale;
-            }
-        } else {
-            @memcpy(buffer.samples, output);
+        // Scale to prevent clipping while preserving the convolved signal
+        const scale = if (max_sample > 0.95) 0.95 / max_sample else 1.0;
+
+        // Mix dry and wet
+        for (0..buffer.samples.len) |i| {
+            const wet = output[i] * scale;
+            buffer.samples[i] = buffer.samples[i] * (1.0 - self.dry_wet) + wet * self.dry_wet;
         }
     }
 };

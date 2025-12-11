@@ -1,12 +1,12 @@
 const std = @import("std");
 const effect_chain_mod = @import("core/effect_chain.zig");
 const distortion_mod = @import("effects/distortions/distortion.zig");
-const convolver_effect_mod = @import("effects/convolver/convolver_effect.zig");
+const convolver_mod = @import("effects/convolver/convolver.zig");
 const ports = @import("ports/effects.zig");
 
 const EffectChain = effect_chain_mod.EffectChain;
 const Distortion = distortion_mod.Distortion;
-const ConvolverEffect = convolver_effect_mod.Convolver;
+const ConvolverEffect = convolver_mod.Convolver;
 
 /// Deinit callback for Distortion effect
 fn distortion_deinit(allocator: std.mem.Allocator, instance: *anyopaque) void {
@@ -227,7 +227,7 @@ pub fn initChainFromJson(
 
             try chain.addEffect_with_deinit(
                 effect_id,
-                &convolver_effect_mod.convolver_descriptor,
+                &convolver_mod.convolver_descriptor,
                 @ptrCast(conv),
                 @ptrCast(&ConvolverEffect.processBuffer),
                 convolver_deinit,

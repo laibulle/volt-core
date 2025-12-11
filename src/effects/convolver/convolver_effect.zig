@@ -95,20 +95,6 @@ pub const Convolver = struct {
         return null;
     }
 
-    /// Process a single sample through convolution
-    pub fn process(self: *const Convolver, input: f32) f32 {
-        // Simple direct convolution for single sample
-        var sum: f32 = 0.0;
-        for (0..self.ir_length) |i| {
-            sum += input * self.ir_buffer[i];
-        }
-        const normalized = sum / @as(f32, @floatFromInt(self.ir_length));
-
-        // Apply dry/wet mix
-        const result = input * (1.0 - self.dry_wet) + normalized * self.dry_wet;
-        return result;
-    }
-
     /// Process entire audio buffer with convolution
     pub fn processBuffer(self: *Convolver, buffer: *audio.AudioBuffer) void {
         // Direct convolution (time-domain)

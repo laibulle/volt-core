@@ -18,11 +18,6 @@ pub const CoreAudioGraphDriver = struct {
     mixer_unit: c.AudioUnit = null,
     output_unit: c.AudioUnit = null,
     is_running: bool = false,
-    distortion: ?*effects.Distortion = null,
-    convolver: ?*effects.Convolver = null,
-    conv_state: [*]f32 = undefined,
-    conv_state_len: usize = 0,
-    conv_state_pos: usize = 0,
     sample_rate: f64 = 44100.0,
     input_device_id: c.AudioDeviceID = 0,
     output_device_id: c.AudioDeviceID = 0,
@@ -244,35 +239,14 @@ pub const CoreAudioGraphDriver = struct {
     ) !void {
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(self.context));
         _ = buffer_size; // Buffer size is managed by CoreAudio
+        _ = effects_chain; // Effects are processed through the effect chain, not here
 
         // Store sample rate for use in callbacks
         driver.sample_rate = @floatFromInt(sample_rate);
 
-        // Extract effects from array (for now, expecting distortion at index 0)
-        // TODO: Make this more flexible with effect type identification
-        if (effects_chain.len > 0) {
-            driver.distortion = @ptrCast(@alignCast(effects_chain[0]));
-        }
-        if (effects_chain.len > 1) {
-            driver.convolver = @ptrCast(@alignCast(effects_chain[1]));
-        }
-
         // Convert device indices to actual device IDs
         driver.input_device_id = try getDeviceIdByIndex(input_device);
         driver.output_device_id = try getDeviceIdByIndex(output_device);
-
-        std.debug.print("Using input device ID: 0x{x}\n", .{driver.input_device_id});
-        std.debug.print("Using output device ID: 0x{x}\n", .{driver.output_device_id});
-
-        // Allocate convolution state buffer (only if convolver is present)
-        if (driver.convolver) |conv| {
-            const conv_state_len = conv.ir_length;
-            const conv_state = try driver.allocator.alloc(f32, conv_state_len);
-            @memset(conv_state, 0.0);
-            driver.conv_state = conv_state.ptr;
-            driver.conv_state_len = conv_state_len;
-        }
-        driver.conv_state_pos = 0;
 
         var err: c.OSStatus = 0;
 
@@ -681,11 +655,7 @@ pub const CoreAudioGraphDriver = struct {
             driver.input_unit = null;
         }
 
-        // Free convolution state buffer
-        if (driver.conv_state_len > 0) {
-            const conv_state_slice = driver.conv_state[0..driver.conv_state_len];
-            driver.allocator.free(conv_state_slice);
-        }
+        // Legacy convolution state is no longer used
 
         driver.allocator.destroy(driver);
         g_driver_instance = null;
@@ -702,45 +672,14 @@ pub const CoreAudioGraphDriver = struct {
         _ = io_action_flags;
         _ = in_time_stamp;
         _ = in_bus_number;
+        _ = in_number_frames;
+        _ = io_data;
 
         const driver: *CoreAudioGraphDriver = @ptrCast(@alignCast(in_ref_con));
 
-        if (driver.distortion == null or driver.convolver == null or io_data == null) {
-            return 0;
-        }
-
-        const buffer_list = io_data;
-        if (buffer_list.*.mNumberBuffers == 0) {
-            return 0;
-        }
-
-        const audio_buffer = &buffer_list.*.mBuffers[0];
-        const audio = @as([*]f32, @ptrCast(@alignCast(audio_buffer.mData)));
-
-        // Process each sample - input is already in the buffer from the input unit
-        for (0..in_number_frames) |i| {
-            var sample: f64 = @as(f64, audio[i]);
-
-            // Apply distortion
-            const driven = sample * driver.distortion.?.drive;
-            const soft_clipped = std.math.tanh(driven);
-            sample = soft_clipped * driver.distortion.?.tone;
-
-            // Apply convolution (10-tap FIR)
-            var conv_out: f32 = 0.0;
-            const ir_ptr = driver.convolver.?.ir_buffer;
-            const max_taps = @min(10, driver.convolver.?.ir_length);
-            for (0..max_taps) |tap| {
-                const idx = (driver.conv_state_pos + tap) % driver.conv_state_len;
-                conv_out += driver.conv_state[idx] * ir_ptr[tap];
-            }
-
-            driver.conv_state[driver.conv_state_pos] = @as(f32, @floatCast(sample));
-            driver.conv_state_pos = (driver.conv_state_pos + 1) % driver.conv_state_len;
-
-            // 100% wet output
-            audio[i] = std.math.clamp(conv_out, -1.0, 1.0);
-        }
+        // Effects are processed through the effect chain in the main audio processing
+        // This callback no longer does legacy sample-by-sample processing
+        _ = driver;
 
         return 0;
     }
@@ -760,17 +699,12 @@ pub const CoreAudioGraphDriver = struct {
             return 0;
         }
 
-        // Debug: Count callbacks (every 50 callbacks = ~1 second at 48kHz)
-        if ((driver.conv_state_pos / in_number_frames) % 1500 == 0) {
-            std.debug.print("Render callback called (frame={}), frames: {}, bus: {}\n", .{ driver.conv_state_pos, in_number_frames, in_bus_number });
-        }
-
         // Get buffer info
         const num_buffers = io_data.*.mNumberBuffers;
         const channels_per_buffer = io_data.*.mBuffers[0].mNumberChannels;
 
-        // Debug output on first callback
-        if (driver.conv_state_pos < 2) {
+        // Debug output on first few callbacks
+        if (in_number_frames < 10) {
             std.debug.print("🔍 Callback buffers: {d}, channels per buffer: {d}\n", .{ num_buffers, channels_per_buffer });
             std.debug.print("🔍 Driver sample rate: {d:.0} Hz, frames per callback: {d}\n", .{ driver.sample_rate, in_number_frames });
         }
@@ -823,6 +757,7 @@ pub const CoreAudioGraphDriver = struct {
 
             var input_sample_count: u32 = 0;
             var test_tone_count: u32 = 0;
+            var sample_counter: u64 = 0;
 
             for (0..in_number_frames) |i| {
                 if (driver.input_queue) |queue| {
@@ -831,7 +766,7 @@ pub const CoreAudioGraphDriver = struct {
                         input_sample_count += 1;
                     } else {
                         // No input available - generate test tone
-                        const t = @as(f64, @floatFromInt(driver.conv_state_pos + i));
+                        const t = @as(f64, @floatFromInt(sample_counter));
                         const phase = @mod(t * frequency / sample_rate, 1.0);
                         const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
                         input_buffer[i] = sample_test;
@@ -839,24 +774,14 @@ pub const CoreAudioGraphDriver = struct {
                     }
                 } else {
                     // No input queue - generate test tone
-                    const t = @as(f64, @floatFromInt(driver.conv_state_pos + i));
+                    const t = @as(f64, @floatFromInt(sample_counter));
                     const phase = @mod(t * frequency / sample_rate, 1.0);
                     const sample_test = if (phase < 0.5) @as(f32, 0.7) else @as(f32, -0.7);
                     input_buffer[i] = sample_test;
                     test_tone_count += 1;
                 }
+                sample_counter += 1;
             }
-
-            // Debug: Show if we're getting real input
-            if ((driver.conv_state_pos / in_number_frames) % 1000 == 0) {
-                if (input_sample_count > 0) {
-                    std.debug.print("✓ Callback #{}: {}/{} guitar samples\n", .{ driver.conv_state_pos / in_number_frames, input_sample_count, in_number_frames });
-                } else if (test_tone_count > 0) {
-                    std.debug.print("⚠ Callback #{}: test tone ({} samples)\n", .{ driver.conv_state_pos / in_number_frames, test_tone_count });
-                }
-            }
-
-            driver.conv_state_pos += in_number_frames;
         }
 
         // We have input samples - apply effects and output them
