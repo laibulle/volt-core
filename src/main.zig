@@ -107,7 +107,77 @@ pub fn main() !void {
         return try handleParseCommand(allocator, cli_args);
     }
 
-    // Handle run command
+    // Handle sample command
+    if (cli_args.command == .sample) {
+        const sample_path = cli_args.sample_name orelse {
+            std.debug.print("Error: Sample file path required\n", .{});
+            return volt_core.cli.CliError.MissingArgumentValue;
+        };
+
+        // Validate that chain configuration is provided
+        if (cli_args.chain_config_file == null) {
+            volt_core.cli.printMissingChainError();
+            return volt_core.cli.CliError.MissingChainConfiguration;
+        }
+
+        std.debug.print("Volt Core - Sample Test Player\n", .{});
+        std.debug.print("================================\n\n", .{});
+
+        // Load effect chain configuration (required)
+        std.debug.print("Loading effect chain from: {s}\n", .{cli_args.chain_config_file.?});
+
+        const file = std.fs.cwd().openFile(cli_args.chain_config_file.?, .{}) catch |err| {
+            std.debug.print("Error opening chain config file: {}\n", .{err});
+            return err;
+        };
+        defer file.close();
+
+        const json_content = try file.readToEndAlloc(allocator, 1024 * 1024);
+        defer allocator.free(json_content);
+
+        var chain = volt_core.chain_config.initChainFromJson(allocator, json_content) catch |err| {
+            std.debug.print("Error parsing chain config: {}\n", .{err});
+            return err;
+        };
+        defer chain.deinit();
+
+        try volt_core.chain_config.printChainConfig(&chain);
+
+        // Load and process sample
+        const loader = volt_core.wav_loader.WAVLoader.init(allocator);
+        std.debug.print("Loading sample: {s}\n", .{sample_path});
+
+        var audio_buffer = loader.loadFile(sample_path) catch |err| {
+            std.debug.print("Error loading sample file: {}\n", .{err});
+            return err;
+        };
+        defer audio_buffer.deinit(allocator);
+
+        std.debug.print("✓ Loaded: {d} samples at {d}Hz ({d} channels)\n", .{
+            audio_buffer.samples.len / audio_buffer.channel_count,
+            audio_buffer.sample_rate,
+            audio_buffer.channel_count,
+        });
+
+        // Apply configured effect chain
+        std.debug.print("✓ Applying effect chain ({d} effects)...\n", .{chain.effectCount()});
+        chain.processBuffer(&audio_buffer);
+
+        // Play the processed audio
+        var player = try volt_core.audio_player.AudioPlayer.init(allocator);
+        defer player.deinit();
+
+        std.debug.print("✓ Starting playback...\n\n", .{});
+        try player.playBuffer(
+            audio_buffer.samples.ptr,
+            audio_buffer.samples.len / audio_buffer.channel_count,
+            audio_buffer.sample_rate,
+            audio_buffer.channel_count,
+        );
+
+        std.debug.print("✓ Playback complete!\n", .{});
+        return;
+    }
 
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});

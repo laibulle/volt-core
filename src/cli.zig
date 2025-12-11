@@ -14,6 +14,7 @@ pub const CliError = error{
 pub const Command = enum {
     run, // Run effect chain (default)
     parse, // Parse KiCAD file to intermediate format
+    sample, // Test with sample audio files
 };
 
 /// Parsed CLI arguments
@@ -29,29 +30,33 @@ pub const CliArgs = struct {
     chain_config_file: ?[]const u8 = null,
     kicad_file: ?[]const u8 = null, // For parse command
     output_file: ?[]const u8 = null, // For parse command
+    sample_name: ?[]const u8 = null, // For sample command
 };
 
 /// Supported sample rates
 const SUPPORTED_SAMPLE_RATES = [_]u32{ 44100, 48000, 88200, 96000, 192000 };
 
-/// Print help message
 pub fn printHelp() void {
     std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
     std.debug.print("Usage: volt_core <command> [options]\n\n", .{});
     std.debug.print("Commands:\n", .{});
-    std.debug.print("  run                               Run effect chain (default)\n", .{});
-    std.debug.print("  parse <kicad_file> <output.json>  Parse KiCAD file to intermediate JSON format\n\n", .{});
+    std.debug.print("  run                                Run effect chain (default)\n", .{});
+    std.debug.print("  sample <path> <chain_config>       Test with sample audio file\n", .{});
+    std.debug.print("  parse <kicad_file> <output.json>   Parse KiCAD file to intermediate JSON format\n\n", .{});
     std.debug.print("Run command options:\n", .{});
-    std.debug.print("  --chain, -c <file>                Load effect chain from JSON config file (REQUIRED)\n", .{});
-    std.debug.print("  --list-devices, -ld               List available audio devices\n", .{});
-    std.debug.print("  --realtime, -rt                   Use real-time input (guitar input)\n", .{});
-    std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
-    std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
-    std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
-    std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
-    std.debug.print("                                    Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
-    std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
-    std.debug.print("  --help, -h                        Show this help message\n", .{});
+    std.debug.print("  --chain, -c <file>                 Load effect chain from JSON config file (REQUIRED)\n", .{});
+    std.debug.print("  --list-devices, -ld                List available audio devices\n", .{});
+    std.debug.print("  --realtime, -rt                    Use real-time input (guitar input)\n", .{});
+    std.debug.print("  --input-device <id>                Input device ID (default: system default)\n", .{});
+    std.debug.print("  --output-device <id>               Output device ID (default: system default)\n", .{});
+    std.debug.print("  --buffer-size, -bs <frames>        Audio buffer size in frames (default: 128)\n", .{});
+    std.debug.print("  --sample-rate, -sr <hz>            Sample rate in Hz (default: 44100)\n", .{});
+    std.debug.print("                                     Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
+    std.debug.print("  --duration, -d <seconds>           Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
+    std.debug.print("  --help, -h                         Show this help message\n\n", .{});
+    std.debug.print("Sample command examples:\n", .{});
+    std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/neural_orange_amp.json\n", .{});
+    std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/chain_single_distortion.json\n", .{});
 }
 
 /// Print error message for missing chain configuration
@@ -107,6 +112,22 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) !CliArgs {
         cli_args.command = .parse;
         cli_args.kicad_file = args[2];
         cli_args.output_file = args[3];
+        return cli_args;
+    }
+
+    // Check for sample command
+    if (std.mem.eql(u8, args[1], "sample")) {
+        if (args.len < 4) {
+            std.debug.print("Error: sample command requires sample file path and chain config file\n", .{});
+            std.debug.print("Usage: volt_core sample <sample_path> <chain_config.json>\n\n", .{});
+            std.debug.print("Examples:\n", .{});
+            std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/neural_orange_amp.json\n", .{});
+            std.debug.print("  volt_core sample samples/ElectricGuitar1-Raw_105.wav config/chain_single_distortion.json\n", .{});
+            return CliError.MissingArgumentValue;
+        }
+        cli_args.command = .sample;
+        cli_args.sample_name = args[2]; // Use as file path directly
+        cli_args.chain_config_file = args[3];
         return cli_args;
     }
 
