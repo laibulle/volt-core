@@ -147,14 +147,21 @@ pub const NeuralEffect = struct {
             };
         }
 
-        // Prevent clipping by normalizing if peak exceeds 1.0
+        // Normalize output to use full dynamic range
         var peak_amp: f32 = 0.0;
         for (buffer.samples) |sample| {
             peak_amp = @max(peak_amp, @abs(sample));
         }
 
-        if (peak_amp > 1.0) {
-            const scale = 0.95 / peak_amp;
+        // Scale up to near-unity if output is too quiet (< 0.5 peak)
+        if (peak_amp > 0.0 and peak_amp < 0.5) {
+            const scale = 0.9 / peak_amp; // Scale to ~0.9 peak for headroom
+            for (0..buffer.samples.len) |i| {
+                buffer.samples[i] *= scale;
+            }
+        } else if (peak_amp > 1.0) {
+            // Scale down if clipping
+            const scale = 0.9 / peak_amp;
             for (0..buffer.samples.len) |i| {
                 buffer.samples[i] *= scale;
             }
