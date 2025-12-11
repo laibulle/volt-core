@@ -111,21 +111,8 @@ pub const Convolver = struct {
 
     /// Process entire audio buffer with convolution
     pub fn processBuffer(self: *Convolver, buffer: *audio.AudioBuffer) void {
-
-        // Check input signal
-        var input_max: f32 = 0.0;
-        var input_sum: f32 = 0.0;
-        for (buffer.samples) |sample| {
-            const abs_sample = if (sample < 0.0) -sample else sample;
-            if (abs_sample > input_max) input_max = abs_sample;
-            input_sum += sample;
-        }
-
         // Direct convolution (time-domain)
-        var output = self.allocator.alloc(f32, buffer.samples.len) catch {
-            std.debug.print("[ERROR] Failed to allocate output buffer\n", .{});
-            return;
-        };
+        var output = self.allocator.alloc(f32, buffer.samples.len) catch return;
         defer self.allocator.free(output);
 
         @memset(output, 0.0);
@@ -145,15 +132,6 @@ pub const Convolver = struct {
             output[n] = sum;
         }
 
-        // Check convolution output
-        var conv_max: f32 = 0.0;
-        var conv_sum: f32 = 0.0;
-        for (output) |sample| {
-            const abs_sample = if (sample < 0.0) -sample else sample;
-            if (abs_sample > conv_max) conv_max = abs_sample;
-            conv_sum += sample;
-        }
-
         // Find peak to normalize and prevent clipping
         var max_sample: f32 = 0.0;
         for (output) |sample| {
@@ -161,32 +139,13 @@ pub const Convolver = struct {
             if (abs_sample > max_sample) max_sample = abs_sample;
         }
 
-
-        // Always apply the convolution with normalization
-        // The scale factor prevents clipping while preserving the convolved signal
+        // Scale to prevent clipping while preserving the convolved signal
         const scale = if (max_sample > 0.95) 0.95 / max_sample else 1.0;
 
-
-        // Check scaled output before mixing
-        var scaled_max: f32 = 0.0;
-        for (output) |sample| {
-            const scaled = sample * scale;
-            const abs_scaled = if (scaled < 0.0) -scaled else scaled;
-            if (abs_scaled > scaled_max) scaled_max = abs_scaled;
-        }
-
         // Mix dry and wet
-
-        var mixed_max: f32 = 0.0;
-        var mixed_sum: f32 = 0.0;
         for (0..buffer.samples.len) |i| {
             const wet = output[i] * scale;
-            const new_sample = buffer.samples[i] * (1.0 - self.dry_wet) + wet * self.dry_wet;
-            buffer.samples[i] = new_sample;
-
-            const abs_new = if (new_sample < 0.0) -new_sample else new_sample;
-            if (abs_new > mixed_max) mixed_max = abs_new;
-            mixed_sum += new_sample;
+            buffer.samples[i] = buffer.samples[i] * (1.0 - self.dry_wet) + wet * self.dry_wet;
         }
     }
 };
