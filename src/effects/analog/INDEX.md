@@ -12,7 +12,7 @@ Welcome! This is your guide to the AnalogLoader analog circuit emulation system 
 ### 🔧 Building Circuits (30+ minutes)
 1. **[CIRCUIT_EXAMPLES.md](CIRCUIT_EXAMPLES.md)** - Real circuits (Fuzz Face, Tone Stack, Overdrive)
 2. **[ADDING_COMPONENTS.md](ADDING_COMPONENTS.md)** - How to extend the system
-3. **[components_v2.zig](components_v2.zig)** - Full source code
+3. **[components.zig](components.zig)** - Full source code
 
 ### 📖 Original AnalogLoader Documentation
 - **[QUICKSTART.md](QUICKSTART.md)** - Get running in 5 minutes

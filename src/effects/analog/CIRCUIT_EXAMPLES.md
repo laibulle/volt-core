@@ -21,7 +21,7 @@ The Fuzz Face is a legendary two-transistor distortion used by Jimi Hendrix. It 
 
 ```zig
 const std = @import("std");
-const components = @import("components_v2.zig");
+const components = @import("components.zig");
 
 pub fn buildFuzzFace(allocator: std.mem.Allocator) !struct {
     input_cap: components.Capacitor,

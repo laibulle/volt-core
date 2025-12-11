@@ -331,7 +331,7 @@ try std.testing.expect(output > -supply_voltage);
 
 | File | Purpose |
 |------|---------|
-| `components_v2.zig` | All component definitions |
+| `components.zig` | All component definitions |
 | `PARAMETRIZED_COMPONENTS.md` | Deep dive explanation |
 | `ADDING_COMPONENTS.md` | How to add variants/types |
 | `CIRCUIT_EXAMPLES.md` | Real circuit implementations |

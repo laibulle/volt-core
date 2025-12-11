@@ -7,7 +7,7 @@
 **Goal**: Add a film resistor variant with custom tolerance
 
 ```zig
-// In ResistorVariants struct (components_v2.zig)
+// In ResistorVariants struct (components.zig)
 pub fn filmResistor_05percent(resistance: f32) Resistor {
     return Resistor.initWith(resistance, 0.005, 0.25); // 0.5% tolerance
 }
@@ -27,7 +27,7 @@ const output = r.processSignal(input, load_impedance);
 **Goal**: Add a specific diode model for a particular circuit
 
 ```zig
-// In DiodeModels struct (components_v2.zig)
+// In DiodeModels struct (components.zig)
 pub fn diodeOA91() Diode {
     return Diode.init(.{
         .saturation_current = 8e-13,  // Germanium - higher Is
@@ -186,7 +186,7 @@ test "new component variants use same algorithm" {
 
 ```zig
 // In src/effects/analog/analog.zig
-pub const components = @import("components_v2.zig");
+pub const components = @import("components.zig");
 
 // Export the new component
 pub const NewComponent = components.NewComponent;

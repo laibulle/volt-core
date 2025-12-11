@@ -42,7 +42,7 @@ pub const DiodeModels = struct {
 ## File Structure
 
 ### Core Implementation
-- **`components_v2.zig`** (600+ lines)
+- **`components.zig`** (600+ lines)
   - Generic parametrized components: Resistor, Capacitor, Inductor, Diode, OpAmp, Transistor
   - Variant collections: ResistorVariants, CapacitorVariants, etc.
   - Parameter structures: DiodeParams, OpAmpParams, etc.
@@ -256,7 +256,7 @@ const gain = 1.0 + drive_level * 10.0;
 
 ## Test Coverage
 
-### Unit Tests (10+ tests in components_v2.zig)
+### Unit Tests (10+ tests in components.zig)
 - ✅ Resistor variants use same algorithm
 - ✅ Diode models produce different behavior
 - ✅ OpAmp variants correctly parametrized
@@ -352,7 +352,7 @@ const gain = 1.0 + drive_level * 10.0;
    - Component selection guide
    - Practical implementation patterns
 
-4. **SOURCE**: `components_v2.zig`
+4. **SOURCE**: `components.zig`
    - Full implementation
    - Unit tests
    - All variants
