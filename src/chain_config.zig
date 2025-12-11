@@ -2,11 +2,13 @@ const std = @import("std");
 const effect_chain_mod = @import("core/effect_chain.zig");
 const distortion_mod = @import("effects/distortions/distortion.zig");
 const convolver_mod = @import("effects/convolver/convolver.zig");
+const neural_mod = @import("effects/neural/neural_effect.zig");
 const ports = @import("ports/effects.zig");
 
 const EffectChain = effect_chain_mod.EffectChain;
 const Distortion = distortion_mod.Distortion;
 const ConvolverEffect = convolver_mod.Convolver;
+const NeuralEffect = neural_mod.NeuralEffect;
 
 /// Deinit callback for Distortion effect
 fn distortion_deinit(allocator: std.mem.Allocator, instance: *anyopaque) void {
@@ -19,6 +21,13 @@ fn convolver_deinit(allocator: std.mem.Allocator, instance: *anyopaque) void {
     var conv = @as(*ConvolverEffect, @ptrCast(@alignCast(instance)));
     conv.deinit();
     allocator.destroy(conv);
+}
+
+/// Deinit callback for Neural effect
+fn neural_deinit(allocator: std.mem.Allocator, instance: *anyopaque) void {
+    var neural = @as(*NeuralEffect, @ptrCast(@alignCast(instance)));
+    neural.deinit();
+    allocator.destroy(neural);
 }
 
 /// Configuration for an effect loaded from JSON
@@ -231,6 +240,54 @@ pub fn initChainFromJson(
                 @ptrCast(conv),
                 @ptrCast(&ConvolverEffect.processBuffer),
                 convolver_deinit,
+            );
+        } else if (std.mem.eql(u8, type_str, "neural")) {
+            // Create neural effect (heap-allocated)
+            // First, try to get the model path from parameters
+            var model_path: ?[]const u8 = null;
+            if (effect_obj.get("parameters")) |params_value| {
+                if (params_value == .object) {
+                    if (params_value.object.get("model_path")) |model_path_value| {
+                        if (model_path_value == .string) {
+                            model_path = try allocator.dupe(u8, model_path_value.string);
+                        }
+                    }
+                }
+            }
+
+            if (model_path == null) {
+                std.debug.print("Error: Neural effect '{s}' missing required parameter 'model_path'\n", .{effect_id});
+                allocator.free(effect_id);
+                allocator.free(type_str);
+                return error.MissingModelPath;
+            }
+
+            var neural = try allocator.create(NeuralEffect);
+            neural.* = try NeuralEffect.initFromFile(allocator, model_path.?);
+            allocator.free(model_path.?);
+
+            // Apply other parameters from JSON (like dry_wet, input_gain, output_gain)
+            if (effect_obj.get("parameters")) |params_value| {
+                if (params_value == .object) {
+                    var params_iter = params_value.object.iterator();
+                    while (params_iter.next()) |entry| {
+                        if (!std.mem.eql(u8, entry.key_ptr.*, "model_path")) {
+                            if (entry.value_ptr.* == .float) {
+                                _ = neural.setParameter(entry.key_ptr.*, @floatCast(entry.value_ptr.*.float));
+                            } else if (entry.value_ptr.* == .integer) {
+                                _ = neural.setParameter(entry.key_ptr.*, @floatFromInt(entry.value_ptr.*.integer));
+                            }
+                        }
+                    }
+                }
+            }
+
+            try chain.addEffect_with_deinit(
+                effect_id,
+                &neural_mod.neural_descriptor,
+                @ptrCast(neural),
+                @ptrCast(&NeuralEffect.processBuffer),
+                neural_deinit,
             );
         } else {
             std.debug.print("Warning: Unknown effect type '{s}'\n", .{type_str});
