@@ -140,22 +140,24 @@ pub const WaveNetInference = struct {
         }
 
         const model = self.model.?;
-        const gain_linear = std.math.pow(f32, 10.0, model.metadata.gain / 20.0);
-        const loudness_linear = std.math.pow(f32, 10.0, model.metadata.loudness / 20.0);
+        // Note: gain and loudness are metadata about the model's output level
+        // loudness is the ESR (Error-to-Signal Ratio) measurement - NOT a gain to apply
+        // gain_linear represents the model's inherent gain, should be applied to output
+        const output_gain = std.math.pow(f32, 10.0, model.metadata.gain / 20.0);
 
         // Process each sample through the WaveNet
         for (input, 0..) |sample, i| {
             if (i < output.len) {
-                // Apply input normalization
-                var processed = sample * gain_linear * loudness_linear;
+                // Process sample through all layers
+                var processed = sample;
 
                 // Process through each layer
                 for (model.config.layers, 0..) |layer, layer_idx| {
                     processed = try self.processLayer(layer_idx, processed, layer);
                 }
 
-                // Output the processed sample
-                output[i] = processed;
+                // Apply output gain (not loudness - that's just a quality metric)
+                output[i] = processed * output_gain;
             }
         }
     }
