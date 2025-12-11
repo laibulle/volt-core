@@ -25,6 +25,7 @@
 /// loader.processBuffer(&audio_buffer);
 /// ```
 pub const component_definitions = @import("component_definitions.zig");
+pub const circuit_format = @import("circuit_format.zig");
 pub const kicad_parser = @import("kicad_parser.zig");
 pub const circuit_simulator = @import("circuit_simulator.zig");
 pub const analog_effect = @import("analog_effect.zig");
@@ -33,6 +34,8 @@ pub const AnalogLoader = analog_effect.AnalogLoader;
 pub const CircuitPresets = analog_effect.CircuitPresets;
 pub const CircuitSimulator = circuit_simulator.CircuitSimulator;
 pub const KiCADParser = kicad_parser.KiCADParser;
+pub const InternalCircuit = circuit_format.InternalCircuit;
+pub const CircuitBuilder = circuit_format.CircuitBuilder;
 
 pub const analog_descriptor = analog_effect.analog_descriptor;
 pub const processAnalogBuffer = analog_effect.processAnalogBuffer;
