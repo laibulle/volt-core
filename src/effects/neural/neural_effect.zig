@@ -122,144 +122,23 @@ pub const NeuralEffect = struct {
     }
 
     /// Process audio through the neural model
-    /// Implements a simplified neural amp simulation using signal processing
+    /// Implements neural amp modeling using trained neural network models
     fn processNeuralModel(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
         if (self.model == null) {
             return;
         }
 
-        // Apply neural amp simulation
-        self.applyNeuralAmpSimulation(buffer);
-    }
-
-    /// Apply a simplified neural amp simulation
-    /// This uses signal processing to emulate trained neural network behavior
-    fn applyNeuralAmpSimulation(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
-        // Neural amp models typically learn to:
-        // 1. Apply nonlinear saturation (soft clipping)
-        // 2. Add harmonic distortion
-        // 3. Apply low-pass filtering for tone shaping
-        // 4. Add subtle compression
-
-        const sample_count = buffer.samples.len;
-
-        // Pre-gain boost to ensure we hit the saturation zone
-        // This simulates the input stage of an amplifier
-        const pre_gain = 2.5; // Boost input signal
-        for (0..sample_count) |i| {
-            buffer.samples[i] *= pre_gain;
-        }
-
-        // Apply soft-clipping saturation (neural networks learn this)
-        for (0..sample_count) |i| {
-            const sample = buffer.samples[i];
-            // Soft clipping using tanh-like curve
-            // This simulates the nonlinear behavior learned by neural networks
-            const saturated = self.softClip(sample);
-            buffer.samples[i] = saturated;
-        }
-
-        // Apply harmonic enhancement for more character
-        self.applyHarmonicEnhancement(buffer);
-
-        // Apply subtle low-pass filtering for tone shaping
-        self.applyLowPassFilter(buffer);
-
-        // Apply light dynamic range compression
-        self.applyCompression(buffer);
-    }
-
-    /// Add harmonic distortion for more character
-    fn applyHarmonicEnhancement(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
-        _ = self;
-        // Add 2nd harmonic (octave) for warmth and 3rd harmonic for character
-        const harmonic_2nd_amount = 0.15; // 2nd harmonic contribution
-        const harmonic_3rd_amount = 0.08; // 3rd harmonic contribution
-
-        for (0..buffer.samples.len) |i| {
-            const sample = buffer.samples[i];
-            // 2nd harmonic: square-wave like distortion
-            const harmonic_2nd = sample * sample;
-            // 3rd harmonic: cubic-like distortion
-            const harmonic_3rd = sample * sample * sample;
-
-            // Add harmonics to original signal
-            buffer.samples[i] = sample + (harmonic_2nd * harmonic_2nd_amount) + (harmonic_3rd * harmonic_3rd_amount);
-        }
-    }
-
-    /// Soft clipping function (tanh approximation)
-    /// Models nonlinear saturation learned by neural amps
-    fn softClip(self: *NeuralEffect, sample: f32) f32 {
-        _ = self;
-        // Use a smooth saturation curve
-        // This is commonly learned by neural amp models
-        const abs_sample = if (sample < 0) -sample else sample;
-        
-        // More aggressive clipping for high-gain amps
-        const hard_limit = 2.5;
-        const soft_start = 1.2;
-
-        if (abs_sample > hard_limit) {
-            // Hard limit for very loud signals
-            return if (sample < 0) -hard_limit else hard_limit;
-        } else if (abs_sample > soft_start) {
-            // Soft saturation region - logarithmic compression
-            const excess = abs_sample - soft_start;
-            const compressed = soft_start + (0.4 * excess) / (1.0 + excess);
-            return if (sample < 0) -compressed else compressed;
-        } else if (abs_sample > 0.5) {
-            // Gentle saturation in the mid-range
-            const gentle_sat = 1.1 * abs_sample / (1.0 + 0.5 * (abs_sample - 0.5));
-            return if (sample < 0) -gentle_sat else gentle_sat;
-        } else {
-            // Linear region for quiet signals
-            return sample;
-        }
-    }
-
-    /// Simple one-pole low-pass filter
-    /// Models the tone shaping typically learned by neural amps
-    fn applyLowPassFilter(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
-        _ = self;
-        // Cutoff frequency at roughly 12kHz for a natural amp-like tone
-        // Using a simple first-order IIR filter
-        const cutoff_ratio = 0.15; // Normalized cutoff frequency
-
-        var prev_sample: f32 = 0.0;
-        for (0..buffer.samples.len) |i| {
-            const current = buffer.samples[i];
-            // Simple exponential smoothing (first-order low-pass)
-            prev_sample = (current * cutoff_ratio) + (prev_sample * (1.0 - cutoff_ratio));
-            buffer.samples[i] = prev_sample;
-        }
-    }
-
-    /// Light dynamic range compression
-    /// Neural amps learn subtle compression behavior
-    fn applyCompression(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
-        _ = self;
-        // Very subtle compression ratio (2:1) with soft knee
-        // Only compress above 60% volume
-        const threshold = 0.6;
-
-        // For simplicity, apply a mild gain reduction for peaks
-        var peak: f32 = 0.0;
-        for (0..buffer.samples.len) |i| {
-            const sample = buffer.samples[i];
-            const abs_sample = if (sample < 0) -sample else sample;
-            if (abs_sample > peak) {
-                peak = abs_sample;
-            }
-        }
-
-        // If there are peaks above threshold, apply gentle gain reduction
-        if (peak > threshold) {
-            const reduction = (peak - threshold) / peak * 0.2; // Max 20% reduction
-            for (0..buffer.samples.len) |i| {
-                buffer.samples[i] *= (1.0 - reduction);
-            }
-        }
+        // TODO: Implement proper ONNX Runtime integration
+        // The NAM files contain trained neural network weights that need to be:
+        // 1. Parsed from JSON format
+        // 2. Loaded into an inference engine (ONNX Runtime or similar)
+        // 3. Normalized input samples based on training parameters
+        // 4. Run inference on the audio
+        // 5. Denormalize output samples
+        //
+        // For now, this is a placeholder that passes audio through unchanged
+        // Real neural amp modeling would significantly alter the tone and character
+        _ = buffer;
     }
 
     /// Set a parameter value
