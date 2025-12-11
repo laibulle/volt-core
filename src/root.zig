@@ -11,6 +11,7 @@ pub const audio_driver = @import("audio_driver.zig");
 pub const ports = @import("ports/effects.zig");
 pub const core = @import("core/effect_chain.zig");
 pub const chain_config = @import("chain_config.zig");
+pub const cli = @import("cli.zig");
 
 pub fn bufferedPrint() !void {
     // Stdout is for the actual output of your application, for example if you

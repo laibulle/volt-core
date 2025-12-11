@@ -11,92 +11,25 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    var use_realtime = false;
-    var list_devices = false;
-    var duration: f32 = -1.0; // -1 means infinite (run until Ctrl+C)
-    var input_device: i32 = -1; // -1 means use default
-    var output_device: i32 = -1; // -1 means use default
-    var buffer_size: u32 = 128; // Default 128 frames
-    var sample_rate: u32 = 44100; // Default 44.1kHz
-    var chain_config_file: ?[]const u8 = null; // Path to chain configuration JSON
+    // Parse CLI arguments
+    const cli_args = volt_core.cli.parse(allocator, args) catch |err| {
+        std.debug.print("Failed to parse arguments: {}\n", .{err});
+        return err;
+    };
 
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        if (std.mem.eql(u8, args[i], "--realtime") or std.mem.eql(u8, args[i], "-rt")) {
-            use_realtime = true;
-        } else if (std.mem.eql(u8, args[i], "--list-devices") or std.mem.eql(u8, args[i], "-ld")) {
-            list_devices = true;
-        } else if (std.mem.eql(u8, args[i], "--duration") or std.mem.eql(u8, args[i], "-d")) {
-            if (i + 1 < args.len) {
-                duration = try std.fmt.parseFloat(f32, args[i + 1]);
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--input-device")) {
-            if (i + 1 < args.len) {
-                input_device = try std.fmt.parseInt(i32, args[i + 1], 10);
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--output-device")) {
-            if (i + 1 < args.len) {
-                output_device = try std.fmt.parseInt(i32, args[i + 1], 10);
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--buffer-size") or std.mem.eql(u8, args[i], "-bs")) {
-            if (i + 1 < args.len) {
-                buffer_size = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--sample-rate") or std.mem.eql(u8, args[i], "-sr")) {
-            if (i + 1 < args.len) {
-                const requested_rate = try std.fmt.parseUnsigned(u32, args[i + 1], 10);
-                // Validate common sample rates
-                if (requested_rate != 44100 and requested_rate != 48000 and requested_rate != 88200 and requested_rate != 96000 and requested_rate != 192000) {
-                    std.debug.print("Error: Invalid sample rate {d} Hz\n", .{requested_rate});
-                    std.debug.print("Supported rates: 44100, 48000, 88200, 96000, 192000\n", .{});
-                    return error.InvalidSampleRate;
-                }
-                sample_rate = requested_rate;
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--chain") or std.mem.eql(u8, args[i], "-c")) {
-            if (i + 1 < args.len) {
-                chain_config_file = args[i + 1];
-                i += 1;
-            }
-        } else if (std.mem.eql(u8, args[i], "--help") or std.mem.eql(u8, args[i], "-h")) {
-            std.debug.print("Volt Core - Guitar Effects Processor\n", .{});
-            std.debug.print("Usage: volt_core --chain <file> [options]\n", .{});
-            std.debug.print("Options:\n", .{});
-            std.debug.print("  --chain, -c <file>                Load effect chain from JSON config file (REQUIRED)\n", .{});
-            std.debug.print("  --list-devices, -ld               List available audio devices\n", .{});
-            std.debug.print("  --realtime, -rt                   Use real-time input (guitar input)\n", .{});
-            std.debug.print("  --input-device <id>               Input device ID (default: system default)\n", .{});
-            std.debug.print("  --output-device <id>              Output device ID (default: system default)\n", .{});
-            std.debug.print("  --buffer-size, -bs <frames>       Audio buffer size in frames (default: 128)\n", .{});
-            std.debug.print("  --sample-rate, -sr <hz>           Sample rate in Hz (default: 44100)\n", .{});
-            std.debug.print("                                    Supported: 44100, 48000, 88200, 96000, 192000\n", .{});
-            std.debug.print("  --duration, -d <seconds>          Duration for realtime mode (default: infinite, press Ctrl+C to stop)\n", .{});
-            std.debug.print("  --help, -h                        Show this help message\n", .{});
-            return;
-        }
+    // Validate that chain configuration is provided
+    if (cli_args.chain_config_file == null) {
+        volt_core.cli.printMissingChainError();
+        return volt_core.cli.CliError.MissingChainConfiguration;
     }
 
     std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
     std.debug.print("============================================\n\n", .{});
 
     // Load effect chain configuration (required)
-    if (chain_config_file == null) {
-        std.debug.print("Error: Chain configuration is required. Use --chain or -c to specify a JSON config file.\n", .{});
-        std.debug.print("Available configs in config/ directory:\n", .{});
-        std.debug.print("  - chain_single_distortion.json\n", .{});
-        std.debug.print("  - chain_dual_distortion.json\n", .{});
-        std.debug.print("  - chain_three_stage.json\n", .{});
-        return error.MissingChainConfiguration;
-    }
+    std.debug.print("Loading effect chain from: {s}\n", .{cli_args.chain_config_file.?});
 
-    std.debug.print("Loading effect chain from: {s}\n", .{chain_config_file.?});
-
-    const file = std.fs.cwd().openFile(chain_config_file.?, .{}) catch |err| {
+    const file = std.fs.cwd().openFile(cli_args.chain_config_file.?, .{}) catch |err| {
         std.debug.print("Error opening chain config file: {}\n", .{err});
         return err;
     };
@@ -118,16 +51,16 @@ pub fn main() !void {
     var driver = try SelectedDriver.init(allocator);
     defer driver.deinit();
 
-    if (list_devices) {
+    if (cli_args.list_devices) {
         driver.listDevices();
         return;
     }
 
-    if (use_realtime) {
-        std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{duration});
+    if (cli_args.use_realtime) {
+        std.debug.print("Starting real-time processing for {d:.1} seconds...\n", .{cli_args.duration});
         std.debug.print("Plug in your guitar and start playing!\n", .{});
-        std.debug.print("(Buffer size: {d} frames)\n", .{buffer_size});
-        std.debug.print("(Sample rate: {d} Hz)\n", .{sample_rate});
+        std.debug.print("(Buffer size: {d} frames)\n", .{cli_args.buffer_size});
+        std.debug.print("(Sample rate: {d} Hz)\n", .{cli_args.sample_rate});
         std.debug.print("(Effects in chain: {d})\n\n", .{chain.effectCount()});
 
         // Create a single effect processor that wraps the entire chain
@@ -135,7 +68,7 @@ pub fn main() !void {
             @ptrCast(&chain),
         };
 
-        try driver.startProcessing(input_device, output_device, buffer_size, sample_rate, duration, &chain_processor);
+        try driver.startProcessing(cli_args.input_device, cli_args.output_device, cli_args.buffer_size, cli_args.sample_rate, @floatCast(cli_args.duration), &chain_processor);
         driver.deinit(); // Clean up audio resources
     } else {
         // Load guitar sample (existing behavior)
