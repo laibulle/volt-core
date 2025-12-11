@@ -26,6 +26,7 @@
 /// ```
 pub const component_definitions = @import("component_definitions.zig");
 pub const circuit_format = @import("circuit_format.zig");
+pub const circuit_json = @import("circuit_json.zig");
 pub const kicad_parser = @import("kicad_parser.zig");
 pub const circuit_simulator = @import("circuit_simulator.zig");
 pub const analog_effect = @import("analog_effect.zig");

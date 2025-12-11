@@ -75,7 +75,7 @@ pub const ComponentValue = struct {
         return self.magnitude * multiplier;
     }
 
-    fn getUnitChar(self: ComponentValue) u8 {
+    fn getUnitChar(_: ComponentValue) u8 {
         return ' ';
     }
 };

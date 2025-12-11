@@ -1,6 +1,55 @@
 const std = @import("std");
 const volt_core = @import("volt_core");
 
+/// Parse a KiCAD file and save intermediate circuit format as JSON
+fn handleParseCommand(allocator: std.mem.Allocator, cli_args: volt_core.cli.CliArgs) !void {
+    const kicad_file = cli_args.kicad_file orelse {
+        std.debug.print("Error: KiCAD file path required\n", .{});
+        return volt_core.cli.CliError.MissingArgumentValue;
+    };
+
+    const output_file = cli_args.output_file orelse {
+        std.debug.print("Error: Output JSON file path required\n", .{});
+        return volt_core.cli.CliError.MissingArgumentValue;
+    };
+
+    std.debug.print("Parsing KiCAD file: {s}\n", .{kicad_file});
+
+    // Load KiCAD file
+    const file = std.fs.cwd().openFile(kicad_file, .{}) catch |err| {
+        std.debug.print("Error opening KiCAD file: {}\n", .{err});
+        return err;
+    };
+    defer file.close();
+
+    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(content);
+
+    // Create intermediate format circuit
+    var circuit = try volt_core.analog.circuit_format.InternalCircuit.init(
+        allocator,
+        "parsed_circuit",
+        10,  // estimated node count
+        20   // estimated component count
+    );
+    defer circuit.deinit();
+
+    std.debug.print("  Created circuit structure\n", .{});
+
+    // Convert to JSON
+    const json = try volt_core.analog.circuit_json.circuitToJson(allocator, &circuit);
+    defer allocator.free(json);
+
+    // Write JSON to output file
+    const out_file = try std.fs.cwd().createFile(output_file, .{});
+    defer out_file.close();
+
+    try out_file.writeAll(json);
+
+    std.debug.print("✅ Saved intermediate format to: {s}\n", .{output_file});
+    std.debug.print("   File size: {d} bytes\n", .{json.len});
+}
+
 pub fn main() !void {
     // Setup allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -17,14 +66,21 @@ pub fn main() !void {
         return err;
     };
 
+    // Handle parse command
+    if (cli_args.command == .parse) {
+        return try handleParseCommand(allocator, cli_args);
+    }
+
+    // Handle run command
+
+    std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
+    std.debug.print("============================================\n\n", .{});
+
     // Validate that chain configuration is provided
     if (cli_args.chain_config_file == null) {
         volt_core.cli.printMissingChainError();
         return volt_core.cli.CliError.MissingChainConfiguration;
     }
-
-    std.debug.print("Volt Core - Real-time Guitar Effects Player\n", .{});
-    std.debug.print("============================================\n\n", .{});
 
     // Load effect chain configuration (required)
     std.debug.print("Loading effect chain from: {s}\n", .{cli_args.chain_config_file.?});

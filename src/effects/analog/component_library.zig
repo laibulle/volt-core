@@ -1,5 +1,5 @@
 const std = @import("std");
-const components = @import("components.zig");
+const components = @import("components/mod.zig");
 
 const Resistor = components.Resistor;
 const Capacitor = components.Capacitor;
@@ -215,7 +215,7 @@ pub const CircuitPresets = struct {
 
     /// Simple transistor amplifier
     /// Provides gain and distortion
-    pub fn transistorAmp(allocator: std.mem.Allocator, sample_rate: f32, gain: f32) !ComponentLibrary {
+    pub fn transistorAmp(allocator: std.mem.Allocator, sample_rate: f32, _: f32) !ComponentLibrary {
         var lib = ComponentLibrary.init(allocator);
         lib.setSampleRate(sample_rate);
 
@@ -359,7 +359,6 @@ pub const SignalProcessor = struct {
     }
 };
 
-#[cfg(test)]
 const testing = std.testing;
 
 test "component library resistor" {

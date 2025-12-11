@@ -31,9 +31,13 @@ pub const KiCADParser = struct {
 
     /// Parse KiCAD PCB content from string
     pub fn parseContent(self: *KiCADParser, content: []const u8) !ParsedCircuit {
+        var parsed_components = std.ArrayList(ParsedComponent){};
+        parsed_components.allocator = self.allocator;
+        var parsed_connections = std.ArrayList(ParsedConnection){};
+        parsed_connections.allocator = self.allocator;
         var circuit = ParsedCircuit{
-            .components = std.ArrayList(ParsedComponent).init(self.allocator),
-            .connections = std.ArrayList(ParsedConnection).init(self.allocator),
+            .components = parsed_components,
+            .connections = parsed_connections,
             .metadata = CircuitMetadata{
                 .name = "",
                 .description = "",

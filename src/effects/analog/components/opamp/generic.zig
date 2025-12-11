@@ -33,12 +33,12 @@ pub const OpAmp = struct {
         return gain_bw_product / frequency_hz;
     }
 
-    pub fn nonInvertingGain(self: OpAmp, input: f32, feedback_r: f32, input_r: f32) f32 {
+    pub fn nonInvertingGain(_: OpAmp, input: f32, feedback_r: f32, input_r: f32) f32 {
         const gain = 1.0 + (feedback_r / input_r);
         return input * gain;
     }
 
-    pub fn invertingGain(self: OpAmp, input: f32, feedback_r: f32, input_r: f32) f32 {
+    pub fn invertingGain(_: OpAmp, input: f32, feedback_r: f32, input_r: f32) f32 {
         const gain = -(feedback_r / input_r);
         return input * gain;
     }

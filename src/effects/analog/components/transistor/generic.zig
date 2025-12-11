@@ -2,6 +2,7 @@
 /// TRANSISTORS - Generic + Variants
 /// ============================================================================
 pub const TransistorParams = struct {
+    pub const Type = enum { npn, pnp };
     transistor_type: Type,
     beta: f32,
     vbe_on: f32,

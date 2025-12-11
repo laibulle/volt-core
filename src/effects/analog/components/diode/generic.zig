@@ -1,3 +1,5 @@
+const std = @import("std");
+
 /// ============================================================================
 /// DIODES - Generic + Specific Models
 /// ============================================================================
@@ -35,9 +37,13 @@ pub const Diode = struct {
     pub fn softClip(self: Diode, input: f32) f32 {
         const threshold = self.params.forward_drop;
         if (input > threshold) {
-            return threshold + @tanh((input - threshold) / threshold) * threshold;
+            const normalized = (input - threshold) / threshold;
+            const clamped = std.math.min(normalized, 1.0);
+            return threshold + clamped * threshold;
         } else if (input < -threshold) {
-            return -threshold - @tanh((-input - threshold) / threshold) * threshold;
+            const normalized = (-input - threshold) / threshold;
+            const clamped = std.math.min(normalized, 1.0);
+            return -threshold - clamped * threshold;
         }
         return input;
     }
