@@ -125,20 +125,11 @@ pub const NeuralEffect = struct {
     /// Implements a simplified neural amp simulation using signal processing
     fn processNeuralModel(self: *NeuralEffect, buffer: *audio.AudioBuffer) void {
         if (self.model == null) {
-            std.debug.print("    [ERROR] Model is null in processNeuralModel\n", .{});
             return;
         }
 
-        std.debug.print("    Model: {s}\n", .{self.model.?.metadata.name});
-        std.debug.print("    Model sample rate: {d}Hz\n", .{self.model.?.metadata.sample_rate});
-        std.debug.print("    Buffer sample rate: {d}Hz\n", .{buffer.sample_rate});
-
         // Apply neural amp simulation
-        // This is a simplified implementation that approximates neural amp behavior
-        // using harmonic distortion and filtering
         self.applyNeuralAmpSimulation(buffer);
-
-        std.debug.print("    [Processing] Neural amp simulation applied\n", .{});
     }
 
     /// Apply a simplified neural amp simulation
