@@ -12,6 +12,7 @@ pub const WaveNetInference = struct {
 
     // Layer processing state
     layer_histories: ?[][]f32 = null,
+    layer_weight_offsets: ?[]usize = null, // Track weight start index for each layer
     initialized: bool = false,
 
     pub fn init(allocator: std.mem.Allocator) !WaveNetInference {
@@ -39,18 +40,27 @@ pub const WaveNetInference = struct {
         std.debug.print("[WaveNet] Metadata - Gain: {d:.3}, Loudness: {d:.3}\n", .{ model.metadata.gain, model.metadata.loudness });
         std.debug.print("[WaveNet] Configuration - {d} layers, {d} weights\n", .{ model.config.layers.len, model.weights.len });
 
-        // Initialize layer history buffers
+        // Initialize layer history buffers and weight offsets
         // Each layer needs a history of max_dilation * kernel_size samples
         self.layer_histories = try self.allocator.alloc([]f32, model.config.layers.len);
+        self.layer_weight_offsets = try self.allocator.alloc(usize, model.config.layers.len);
 
+        var weight_offset: usize = 0;
         for (model.config.layers, 0..) |layer, i| {
+            // Store weight offset for this layer
+            self.layer_weight_offsets.?[i] = weight_offset;
+
             const max_dilation = if (layer.dilations.len > 0) layer.dilations[layer.dilations.len - 1] else 1;
             const history_size = max_dilation * layer.kernel_size;
 
             self.layer_histories.?[i] = try self.allocator.alloc(f32, history_size);
             @memset(self.layer_histories.?[i], 0);
 
-            std.debug.print("[WaveNet]   Layer {d}: {d}→{d} channels, history size {d}\n", .{ i, layer.input_size, layer.channels, history_size });
+            // Calculate weights per layer: dilations * kernel_size * channels
+            const weights_for_layer = layer.dilations.len * layer.kernel_size * layer.channels;
+            weight_offset += weights_for_layer;
+
+            std.debug.print("[WaveNet]   Layer {d}: {d}→{d} channels, history size {d}, weights {d}-{d}\n", .{ i, layer.input_size, layer.channels, history_size, self.layer_weight_offsets.?[i], weight_offset });
         }
     }
 
@@ -89,12 +99,13 @@ pub const WaveNetInference = struct {
     fn processLayer(self: *WaveNetInference, layer_idx: usize, input: f32, layer: nam_parser.LayerConfig) !f32 {
         const model = self.model.?;
         const history = self.layer_histories.?[layer_idx];
+        const layer_offset = self.layer_weight_offsets.?[layer_idx];
 
         // Calculate output from dilated convolution
         var output: f32 = 0.0;
 
         // For each dilation in the layer
-        for (layer.dilations) |dilation| {
+        for (layer.dilations, 0..) |dilation, dil_idx| {
             // Convolve across the kernel size
             for (0..layer.kernel_size) |k| {
                 // Calculate the position in history to read
@@ -110,10 +121,13 @@ pub const WaveNetInference = struct {
                     history_sample = input;
                 }
 
-                // Get weight for this position
-                // Simplified: assuming weights are ordered by layer, dilation, kernel position
-                const weight_idx = (layer_idx * 1000 + dilation * 100 + k) % model.weights.len;
-                output += history_sample * model.weights[weight_idx];
+                // Get weight for this position using proper layer-based indexing
+                // Weight layout: for each dilation, for each kernel position, for each channel
+                const weight_idx = layer_offset + (dil_idx * layer.kernel_size * layer.channels) + (k * layer.channels);
+
+                // Clamp to valid range
+                const safe_weight_idx = if (weight_idx < model.weights.len) weight_idx else model.weights.len - 1;
+                output += history_sample * model.weights[safe_weight_idx];
             }
         }
 
@@ -136,10 +150,10 @@ pub const WaveNetInference = struct {
     /// Uses a polynomial approximation for efficiency
     fn tanh(self: *WaveNetInference, x: f32) f32 {
         _ = self; // Unused but kept for potential future context
-        
+
         // Use standard library tanh for accuracy
         return std.math.tanh(x);
-        
+
         // Polynomial approximation (if needed for performance):
         // const x_sq = x * x;
         // const a = x * (1.0 + 0.16489087 * x_sq);
@@ -153,6 +167,10 @@ pub const WaveNetInference = struct {
                 self.allocator.free(history);
             }
             self.allocator.free(histories);
+        }
+
+        if (self.layer_weight_offsets) |offsets| {
+            self.allocator.free(offsets);
         }
 
         if (self.model) |*model| {
